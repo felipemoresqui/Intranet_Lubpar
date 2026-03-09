@@ -17,9 +17,16 @@ import {
   HardDrive,
   Laptop,
   Smartphone,
+  Tablet,
+  User,
+  Cpu,
   Server,
   Trash2,
-  GripVertical
+  GripVertical,
+  CheckSquare,
+  ClipboardList,
+  UserMinus,
+  Settings2
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { 
@@ -86,6 +93,24 @@ export interface Ticket {
   updated_at: string;
 }
 
+export interface ChecklistItem {
+  id: string;
+  task: string;
+  completed: boolean;
+}
+
+export interface Checklist {
+  id: number;
+  title: string;
+  template_type: string;
+  items: ChecklistItem[];
+  status: 'Pending' | 'In Progress' | 'Completed';
+  created_at: string;
+  updated_at: string;
+  assigned_to?: string;
+  completed_at?: string;
+}
+
 export interface DashboardStats {
   totals: {
     assets: number;
@@ -99,17 +124,21 @@ export interface DashboardStats {
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assets' | 'software' | 'tickets'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assets' | 'software' | 'tickets' | 'checklists'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [software, setSoftware] = useState<Software[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [categoryConfigs, setCategoryConfigs] = useState<CategoryConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [formType, setFormType] = useState<string>('Computador');
   const [configError, setConfigError] = useState<string | null>(null);
@@ -125,6 +154,7 @@ export default function App() {
         fetch('/api/assets'),
         fetch('/api/software'),
         fetch('/api/tickets'),
+        fetch('/api/checklists'),
         fetch('/api/stats'),
         fetch('/api/category-configs')
       ]);
@@ -136,13 +166,14 @@ export default function App() {
         }
       }
 
-      const [assetsData, softwareData, ticketsData, statsData, configsData] = await Promise.all(
+      const [assetsData, softwareData, ticketsData, checklistsData, statsData, configsData] = await Promise.all(
         responses.map(res => res.json())
       );
 
       setAssets(assetsData);
       setSoftware(softwareData);
       setTickets(ticketsData);
+      setChecklists(checklistsData);
       setStats(statsData);
       setCategoryConfigs(configsData);
       setConfigError(null);
@@ -169,7 +200,174 @@ export default function App() {
     }
   };
 
-  const categories = ['Todos', 'Computador', 'Celular', 'Tablet', 'Linhas'];
+  const categories = ['Todos', ...categoryConfigs.map(c => c.category)];
+
+  const renameCategory = async (oldName: string, newName: string) => {
+    if (!newName.trim() || oldName === newName) return;
+    try {
+      const res = await fetch(`/api/categories/${encodeURIComponent(oldName)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newName })
+      });
+      if (!res.ok) throw new Error('Falha ao renomear categoria');
+      fetchData();
+      if (selectedCategory === oldName) setSelectedCategory(newName);
+    } catch (error) {
+      alert('Erro ao renomear categoria');
+    }
+  };
+
+  const addCategory = async (name: string) => {
+    if (!name.trim()) return;
+    try {
+      const res = await fetch('/api/category-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          category: name, 
+          columns: [
+            { id: 'name', label: 'Ativo', type: 'text', isSystem: true },
+            { id: 'type', label: 'Tipo', type: 'text', isSystem: true },
+            { id: 'serial_number', label: 'Serial', type: 'text', isSystem: true },
+            { id: 'status', label: 'Status', type: 'text', isSystem: true }
+          ]
+        })
+      });
+      if (!res.ok) throw new Error('Falha ao adicionar categoria');
+      fetchData();
+    } catch (error) {
+      alert('Erro ao adicionar categoria');
+    }
+  };
+
+  const deleteCategory = async (name: string) => {
+    if (!confirm(`Tem certeza que deseja excluir a categoria "${name}"? Ativos vinculados a ela não serão excluídos, mas perderão a categoria.`)) return;
+    try {
+      const res = await fetch(`/api/categories/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Falha ao excluir categoria');
+      fetchData();
+      if (selectedCategory === name) setSelectedCategory('Todos');
+    } catch (error) {
+      alert('Erro ao excluir categoria');
+    }
+  };
+
+  const checklistTemplates = {
+    'notebook': {
+      title: 'Notebook',
+      items: [
+        'Incluir máquina no sharepoint',
+        'Incluir no dominio grupoipdv.net',
+        'Alterar senha do usuário administrador',
+        'Instalar Team viewer',
+        'Instalar VPN',
+        'Conectar na VPN',
+        'Entrar no usuário do funcionário',
+        'Baixar pacote office',
+        'Instalar Teams',
+        'Instalar Google Chrome',
+        'Configurar Protheus Web',
+        'Configurar pasta de rede H'
+      ]
+    },
+    'tablet': {
+      title: 'Tablet',
+      items: [
+        'Incluir tablet no sharepoint',
+        'Configurar chip',
+        'Instalar os aplicativos (Outlook, Teams, Word, Excel, etc)',
+        'Etiquetar equipamento',
+        'Preencher termo de responsabilidade'
+      ]
+    },
+    'celular': {
+      title: 'Celular',
+      items: [
+        'Incluir celular no sharepoint',
+        'Incluir no MDM (se for vendedor externo)',
+        'Alterar nome no MDM',
+        'Configurar chip',
+        'Configurar os aplicativos (Outlook, Teams, Word, Excel, etc)',
+        'Etiquetar equipamento',
+        'Preencher termo de responsabilidade'
+      ]
+    },
+    'usuario': {
+      title: 'Usuário',
+      items: [
+        'Criar usuário no AD',
+        'Criar usuário no Protheus',
+        'Liberar licença no Office 365',
+        'Enviar acessos por email',
+        'Criar acesso no ROTA',
+        'Incluir informações no Sharepoint',
+        'Incluir/Alterar nome no MDM',
+        'Alterar nome na planilha de Linhas/VIVO'
+      ]
+    },
+    'chip': {
+      title: 'Chip',
+      items: [
+        'Ajustar informações no relatório de linhas',
+        'Verificar se a linha já está sendo utilizada',
+        'Transferir linha para o chip no vivo empresas',
+        'Ajustar consumo no vivo gestão',
+        'Tirar bloqueios de ligação e consumo no vivo gestão'
+      ]
+    }
+  };
+
+  const addChecklist = async (templateKey: keyof typeof checklistTemplates) => {
+    const template = checklistTemplates[templateKey];
+    const newChecklist = {
+      title: template.title,
+      template_type: templateKey,
+      items: template.items.map((task, index) => ({
+        id: `item-${Date.now()}-${index}`,
+        task,
+        completed: false
+      })),
+      status: 'Pending'
+    };
+
+    try {
+      const res = await fetch('/api/checklists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newChecklist)
+      });
+      if (!res.ok) throw new Error('Falha ao criar checklist');
+      fetchData();
+    } catch (error) {
+      alert('Erro ao criar checklist');
+    }
+  };
+
+  const updateChecklist = async (id: number, updates: Partial<Checklist>) => {
+    try {
+      const res = await fetch(`/api/checklists/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar checklist');
+      fetchData();
+    } catch (error) {
+      alert('Erro ao atualizar checklist');
+    }
+  };
+
+  const deleteChecklist = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este checklist?')) return;
+    try {
+      const res = await fetch(`/api/checklists/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Falha ao excluir checklist');
+      fetchData();
+    } catch (error) {
+      alert('Erro ao excluir checklist');
+    }
+  };
 
   const filteredAssets = assets.filter(asset => {
     const matchesCategory = selectedCategory === 'Todos' || asset.type === selectedCategory;
@@ -178,6 +376,121 @@ export default function App() {
                          asset.model.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  const renderChecklists = () => {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-2xl font-bold text-zinc-900">Checklists de TI</h3>
+            <p className="text-sm text-zinc-500">Gerencie processos e configurações padrão</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+          {(Object.keys(checklistTemplates) as Array<keyof typeof checklistTemplates>).map((key) => {
+            const template = checklistTemplates[key];
+            const Icon = key === 'notebook' ? Laptop :
+                        key === 'tablet' ? Tablet :
+                        key === 'celular' ? Smartphone :
+                        key === 'usuario' ? User : Cpu;
+            
+            return (
+              <button
+                key={key}
+                onClick={() => addChecklist(key)}
+                className="bg-white p-6 rounded-3xl border border-black/5 shadow-sm hover:shadow-md hover:border-black/10 transition-all text-left group"
+              >
+                <div className="w-12 h-12 bg-zinc-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                  <Icon className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-zinc-900 mb-1">{template.title}</h4>
+                <p className="text-xs text-zinc-500">Criar novo checklist a partir deste modelo</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="space-y-4">
+          <h4 className="font-bold text-zinc-900 flex items-center gap-2">
+            <ClipboardList className="w-5 h-5" />
+            Checklists em Andamento
+          </h4>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {checklists.map((checklist) => (
+              <div key={checklist.id} className="bg-white p-6 rounded-3xl border border-black/5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h5 className="font-bold text-zinc-900">{checklist.title}</h5>
+                    <p className="text-xs text-zinc-500">Criado em {format(new Date(checklist.created_at), "d 'de' MMM, HH:mm", { locale: ptBR })}</p>
+                  </div>
+                  <button 
+                    onClick={() => deleteChecklist(checklist.id)}
+                    className="p-2 hover:bg-red-50 rounded-xl text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {checklist.items.map((item) => (
+                    <label key={item.id} className="flex items-center gap-3 p-3 bg-zinc-50 rounded-2xl cursor-pointer hover:bg-zinc-100 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        checked={item.completed}
+                        onChange={(e) => {
+                          const newItems = checklist.items.map(i => 
+                            i.id === item.id ? { ...i, completed: e.target.checked } : i
+                          );
+                          const allCompleted = newItems.every(i => i.completed);
+                          updateChecklist(checklist.id, { 
+                            items: newItems,
+                            status: allCompleted ? 'Completed' : 'In Progress',
+                            completed_at: allCompleted ? new Date().toISOString() : undefined
+                          });
+                        }}
+                        className="w-5 h-5 rounded-lg border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                      />
+                      <span className={`text-sm ${item.completed ? 'text-zinc-400 line-through' : 'text-zinc-700'}`}>
+                        {item.task}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="pt-4 border-t border-black/5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-full bg-zinc-100 h-1.5 rounded-full overflow-hidden w-24">
+                      <div 
+                        className="bg-emerald-500 h-full transition-all duration-500"
+                        style={{ width: `${(checklist.items.filter(i => i.completed).length / checklist.items.length) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                      {Math.round((checklist.items.filter(i => i.completed).length / checklist.items.length) * 100)}%
+                    </span>
+                  </div>
+                  {checklist.status === 'Completed' && (
+                    <span className="flex items-center gap-1 text-emerald-600 text-[10px] font-bold uppercase">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Concluído
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {checklists.length === 0 && (
+              <div className="col-span-full py-12 bg-zinc-50 rounded-3xl border border-dashed border-black/10 flex flex-col items-center justify-center text-center">
+                <ClipboardList className="w-12 h-12 text-zinc-200 mb-3" />
+                <p className="text-sm text-zinc-400">Nenhum checklist em andamento.<br/>Selecione um modelo acima para começar.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderDashboard = () => {
     if (!stats) return null;
@@ -299,6 +612,125 @@ export default function App() {
   };
 
   const renderAssets = () => {
+    if (selectedCategory === 'Todos') {
+      return (
+        <div className="space-y-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-2xl font-bold text-zinc-900">Gestão de Ativos</h3>
+              <p className="text-sm text-zinc-500">Selecione uma categoria para gerenciar o inventário</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsCategoryModalOpen(true)}
+                className="flex items-center gap-2 bg-white text-zinc-600 border border-black/10 px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors text-sm font-medium"
+              >
+                <Settings className="w-4 h-4" />
+                Gerenciar Categorias
+              </button>
+              <button 
+                onClick={() => {
+                  setEditingAsset(null);
+                  setFormType(categories[1] || 'Computador');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-xl hover:bg-zinc-800 transition-colors shadow-lg shadow-zinc-900/20"
+              >
+                <Plus className="w-4 h-4" />
+                Novo Ativo
+              </button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {categories.filter(c => c !== 'Todos').length === 0 ? (
+              <div className="col-span-full py-20 bg-white rounded-3xl border border-dashed border-black/10 flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 bg-zinc-50 rounded-2xl flex items-center justify-center mb-4">
+                  <Package className="w-8 h-8 text-zinc-300" />
+                </div>
+                <h4 className="text-lg font-bold text-zinc-900 mb-2">Nenhuma categoria encontrada</h4>
+                <p className="text-sm text-zinc-500 mb-6 max-w-xs">Você pode criar novas categorias ou restaurar os padrões do sistema para começar.</p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setIsCategoryModalOpen(true)}
+                    className="bg-zinc-900 text-white px-6 py-2 rounded-xl text-sm font-medium hover:bg-zinc-800 transition-colors"
+                  >
+                    Criar Categoria
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      const defaults = ['Computador', 'Celular', 'Tablet', 'Linhas'];
+                      for (const name of defaults) {
+                        await addCategory(name);
+                      }
+                    }}
+                    className="bg-white text-zinc-900 border border-black/10 px-6 py-2 rounded-xl text-sm font-medium hover:bg-zinc-50 transition-colors"
+                  >
+                    Restaurar Padrões
+                  </button>
+                </div>
+              </div>
+            ) : (
+              categories.filter(c => c !== 'Todos').map((cat) => {
+                const count = assets.filter(a => a.type === cat).length;
+                const Icon = cat === 'Computador' ? Laptop :
+                            cat === 'Celular' ? Smartphone :
+                            cat === 'Tablet' ? Smartphone :
+                            cat === 'Linhas' ? HardDrive : Monitor;
+                
+                return (
+                  <motion.div
+                    key={cat}
+                    whileHover={{ y: -5 }}
+                    className="bg-white p-6 rounded-3xl border border-black/5 shadow-sm hover:shadow-xl transition-all text-left group relative"
+                  >
+                    <button 
+                      onClick={() => setSelectedCategory(cat)}
+                      className="absolute inset-0 z-0"
+                    />
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-12 h-12 bg-zinc-50 rounded-2xl flex items-center justify-center group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const newName = prompt('Novo nome para a categoria:', cat);
+                              if (newName) renameCategory(cat, newName);
+                            }}
+                            className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-900 transition-colors"
+                          >
+                            <Settings className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteCategory(cat);
+                            }}
+                            className="p-2 hover:bg-red-50 rounded-lg text-zinc-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <h4 className="text-lg font-bold text-zinc-900 mb-1">{cat}</h4>
+                      <p className="text-sm text-zinc-500">{count} ativos cadastrados</p>
+                      <div className="mt-4 flex items-center text-xs font-bold text-blue-600 uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
+                        Ver Inventário
+                        <ChevronRight className="w-3 h-3 ml-1" />
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const config = categoryConfigs.find(c => c.category === selectedCategory);
     let columns = config?.columns ? [...config.columns] : [
       { id: 'name', label: 'Ativo', type: 'text', isSystem: true },
@@ -356,31 +788,26 @@ export default function App() {
     return (
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
-                  selectedCategory === cat 
-                    ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/20' 
-                    : 'bg-white text-zinc-500 border border-black/5 hover:bg-zinc-50'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setSelectedCategory('Todos')}
+              className="p-2 hover:bg-zinc-100 rounded-xl transition-colors text-zinc-400 hover:text-zinc-900"
+            >
+              <ChevronRight className="w-5 h-5 rotate-180" />
+            </button>
+            <div>
+              <h3 className="text-xl font-bold text-zinc-900">{selectedCategory}</h3>
+              <p className="text-xs text-zinc-500">{filteredAssets.length} itens encontrados</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
-            {selectedCategory !== 'Todos' && (
-              <button 
-                onClick={() => setIsConfigModalOpen(true)}
-                className="flex items-center gap-1.5 bg-white text-zinc-600 border border-black/10 px-3 py-1.5 rounded-xl hover:bg-zinc-50 transition-colors whitespace-nowrap text-xs font-medium"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                Configurar Colunas
-              </button>
-            )}
+            <button 
+              onClick={() => setIsConfigModalOpen(true)}
+              className="flex items-center gap-1.5 bg-white text-zinc-600 border border-black/10 px-3 py-1.5 rounded-xl hover:bg-zinc-50 transition-colors whitespace-nowrap text-xs font-medium"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Configurar Colunas
+            </button>
             <div className="relative flex-1 md:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
               <input 
@@ -394,7 +821,7 @@ export default function App() {
             <button 
               onClick={() => {
                 setEditingAsset(null);
-                setFormType(selectedCategory === 'Todos' ? 'Computador' : selectedCategory);
+                setFormType(selectedCategory);
                 setIsModalOpen(true);
               }}
               className="flex items-center gap-2 bg-zinc-900 text-white px-4 py-2 rounded-xl hover:bg-zinc-800 transition-colors whitespace-nowrap"
@@ -499,6 +926,7 @@ CREATE TABLE IF NOT EXISTS assets (id BIGINT GENERATED BY DEFAULT AS IDENTITY PR
 CREATE TABLE IF NOT EXISTS category_configs (category TEXT PRIMARY KEY, columns JSONB NOT NULL);
 CREATE TABLE IF NOT EXISTS software (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, name TEXT NOT NULL, version TEXT, license_key TEXT, vendor TEXT, expiry_date TEXT, total_licenses BIGINT, used_licenses BIGINT DEFAULT 0);
 CREATE TABLE IF NOT EXISTS tickets (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, title TEXT NOT NULL, description TEXT, priority TEXT DEFAULT 'Medium', status TEXT DEFAULT 'Open', requester TEXT, assigned_to TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS checklists (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, title TEXT NOT NULL, template_type TEXT NOT NULL, items JSONB NOT NULL DEFAULT '[]'::jsonb, status TEXT DEFAULT 'Pending', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(), assigned_to TEXT, completed_at TIMESTAMPTZ);
 
 -- ==========================================
 -- 2. SEGURANÇA (RLS)
@@ -516,6 +944,7 @@ BEGIN
         CREATE POLICY "Public Access" ON category_configs FOR ALL USING (true) WITH CHECK (true);
         CREATE POLICY "Public Access" ON software FOR ALL USING (true) WITH CHECK (true);
         CREATE POLICY "Public Access" ON tickets FOR ALL USING (true) WITH CHECK (true);
+        CREATE POLICY "Public Access" ON checklists FOR ALL USING (true) WITH CHECK (true);
     END IF;
 END $$;
 
@@ -524,6 +953,16 @@ END $$;
 -- ==========================================
 CREATE OR REPLACE FUNCTION get_assets_by_type() RETURNS TABLE (type TEXT, count BIGINT) AS $$ SELECT type, COUNT(*) as count FROM assets GROUP BY type; $$ LANGUAGE sql;
 CREATE OR REPLACE FUNCTION get_tickets_by_status() RETURNS TABLE (status TEXT, count BIGINT) AS $$ SELECT status, COUNT(*) as count FROM tickets GROUP BY status; $$ LANGUAGE sql;
+
+-- ==========================================
+-- 4. CATEGORIAS PADRÃO
+-- ==========================================
+INSERT INTO category_configs (category, columns) VALUES 
+('Computador', '[{"id": "name", "label": "Ativo", "type": "text", "isSystem": true}, {"id": "type", "label": "Tipo", "type": "text", "isSystem": true}, {"id": "serial_number", "label": "Serial", "type": "text", "isSystem": true}, {"id": "status", "label": "Status", "type": "text", "isSystem": true}]'::jsonb),
+('Celular', '[{"id": "name", "label": "Ativo", "type": "text", "isSystem": true}, {"id": "type", "label": "Tipo", "type": "text", "isSystem": true}, {"id": "serial_number", "label": "Serial", "type": "text", "isSystem": true}, {"id": "status", "label": "Status", "type": "text", "isSystem": true}]'::jsonb),
+('Tablet', '[{"id": "name", "label": "Ativo", "type": "text", "isSystem": true}, {"id": "type", "label": "Tipo", "type": "text", "isSystem": true}, {"id": "serial_number", "label": "Serial", "type": "text", "isSystem": true}, {"id": "status", "label": "Status", "type": "text", "isSystem": true}]'::jsonb),
+('Linhas', '[{"id": "name", "label": "Ativo", "type": "text", "isSystem": true}, {"id": "type", "label": "Tipo", "type": "text", "isSystem": true}, {"id": "serial_number", "label": "Serial", "type": "text", "isSystem": true}, {"id": "status", "label": "Status", "type": "text", "isSystem": true}]'::jsonb)
+ON CONFLICT (category) DO NOTHING;
 `;
                       navigator.clipboard.writeText(sql.trim());
                     }}
@@ -613,7 +1052,10 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
               Dashboard
             </button>
             <button 
-              onClick={() => setActiveTab('assets')}
+              onClick={() => {
+                setActiveTab('assets');
+                setSelectedCategory('Todos');
+              }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 activeTab === 'assets' ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/20' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
               }`}
@@ -639,6 +1081,15 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
               <TicketIcon className="w-4 h-4" />
               Chamados
             </button>
+            <button 
+              onClick={() => setActiveTab('checklists')}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                activeTab === 'checklists' ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-900/20' : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+              }`}
+            >
+              <CheckSquare className="w-4 h-4" />
+              Checklists
+            </button>
           </nav>
         </div>
 
@@ -663,7 +1114,8 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
           <h2 className="text-lg font-semibold capitalize">
             {activeTab === 'dashboard' ? 'Visão Geral' : 
              activeTab === 'assets' ? 'Gestão de Ativos' : 
-             activeTab === 'software' ? 'Licenças de Software' : 'Central de Chamados'}
+             activeTab === 'software' ? 'Licenças de Software' : 
+             activeTab === 'tickets' ? 'Central de Chamados' : 'Checklists de TI'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 text-sm text-zinc-500 bg-zinc-50 px-3 py-1.5 rounded-full border border-black/5">
@@ -700,13 +1152,16 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
                   <p>Módulo de Chamados em desenvolvimento...</p>
                 </div>
               )}
+              {activeTab === 'checklists' && renderChecklists()}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
 
-      {/* Modal for Column Configuration */}
-      {isConfigModalOpen && (
+      {/* Modals */}
+      <AnimatePresence>
+        {/* Modal for Column Configuration */}
+        {isConfigModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
@@ -834,8 +1289,77 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
         </div>
       )}
 
-      {/* Modal for New/Edit Asset */}
-      {isModalOpen && (
+        {/* Category Management Modal */}
+        {isCategoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-black/5 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-zinc-900">Gerenciar Categorias</h3>
+                <button onClick={() => setIsCategoryModalOpen(false)} className="p-2 hover:bg-zinc-100 rounded-xl transition-colors">
+                  <Plus className="w-5 h-5 rotate-45 text-zinc-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="space-y-2">
+                  {categoryConfigs.map((config) => (
+                    <div key={config.category} className="flex items-center gap-2 group">
+                      <input 
+                        type="text"
+                        defaultValue={config.category}
+                        onBlur={(e) => renameCategory(config.category, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 bg-zinc-50 border border-black/5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <button 
+                        onClick={() => deleteCategory(config.category)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-4 border-t border-black/5">
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Nova categoria..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          addCategory((e.target as HTMLInputElement).value);
+                          (e.target as HTMLInputElement).value = '';
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 bg-white border border-black/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    <button 
+                      onClick={(e) => {
+                        const input = (e.currentTarget.previousSibling as HTMLInputElement);
+                        addCategory(input.value);
+                        input.value = '';
+                      }}
+                      className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-medium"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal for New/Edit Asset */}
+        {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
@@ -957,7 +1481,7 @@ CREATE POLICY "Public Access" ON assets FOR ALL USING (true);
           </motion.div>
         </div>
       )}
-
+      </AnimatePresence>
 
     </div>
   );

@@ -152,6 +152,63 @@ async function startServer() {
     }
   });
 
+  // Checklists
+  app.get('/api/checklists', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('checklists')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      res.json(data || []);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/checklists', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('checklists')
+        .insert([req.body])
+        .select();
+      if (error) throw error;
+      res.json({ id: data?.[0]?.id });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch('/api/checklists/:id', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('checklists')
+        .update({ ...req.body, updated_at: new Date().toISOString() })
+        .eq('id', req.params.id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/checklists/:id', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('checklists')
+        .delete()
+        .eq('id', req.params.id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Category Configs
   app.get('/api/category-configs', async (req, res) => {
     try {
@@ -170,6 +227,46 @@ async function startServer() {
       const { error } = await supabase
         .from('category_configs')
         .upsert(req.body);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put('/api/categories/:oldName', async (req, res) => {
+    try {
+      const { oldName } = req.params;
+      const { newName } = req.body;
+      const supabase = getSupabase();
+
+      // Update assets first
+      await supabase.from('assets').update({ type: newName }).eq('type', oldName);
+      
+      // Update category_configs
+      const { error } = await supabase
+        .from('category_configs')
+        .update({ category: newName })
+        .eq('category', oldName);
+      
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/categories/:name', async (req, res) => {
+    try {
+      const { name } = req.params;
+      const supabase = getSupabase();
+      
+      // Delete config
+      const { error } = await supabase
+        .from('category_configs')
+        .delete()
+        .eq('category', name);
+      
       if (error) throw error;
       res.json({ success: true });
     } catch (error) {
