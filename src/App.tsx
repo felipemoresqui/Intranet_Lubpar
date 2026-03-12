@@ -218,7 +218,7 @@ export default function App() {
     }
   };
 
-  const addCategory = async (name: string) => {
+  const addCategory = async (name: string, shouldFetch = true) => {
     if (!name.trim()) return;
     try {
       const res = await fetch('/api/category-configs', {
@@ -234,10 +234,17 @@ export default function App() {
           ]
         })
       });
-      if (!res.ok) throw new Error('Falha ao adicionar categoria');
-      fetchData();
-    } catch (error) {
-      alert('Erro ao adicionar categoria');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Falha ao adicionar categoria');
+      }
+      if (shouldFetch) fetchData();
+    } catch (error: any) {
+      if (shouldFetch) {
+        alert(`Erro ao adicionar categoria: ${error.message}`);
+      } else {
+        throw error;
+      }
     }
   };
 
@@ -658,13 +665,28 @@ export default function App() {
                     Criar Categoria
                   </button>
                   <button 
-                    onClick={async () => {
-                      const defaults = ['Computador', 'Celular', 'Tablet', 'Linhas'];
-                      for (const name of defaults) {
-                        await addCategory(name);
+                    onClick={async (e) => {
+                      const btn = e.currentTarget;
+                      const originalText = btn.innerText;
+                      btn.disabled = true;
+                      btn.innerText = 'Restaurando...';
+                      
+                      try {
+                        const defaults = ['Computador', 'Celular', 'Tablet', 'Linhas'];
+                        for (const name of defaults) {
+                          // We don't call fetchData inside the loop to avoid multiple refreshes
+                          await addCategory(name, false);
+                        }
+                        await fetchData();
+                        alert('Padrões restaurados com sucesso!');
+                      } catch (error: any) {
+                        alert(`Erro ao restaurar padrões: ${error.message}`);
+                      } finally {
+                        btn.disabled = false;
+                        btn.innerText = originalText;
                       }
                     }}
-                    className="bg-white text-zinc-900 border border-black/10 px-6 py-2 rounded-xl text-sm font-medium hover:bg-zinc-50 transition-colors"
+                    className="bg-white text-zinc-900 border border-black/10 px-6 py-2 rounded-xl text-sm font-medium hover:bg-zinc-50 transition-colors disabled:opacity-50"
                   >
                     Restaurar Padrões
                   </button>
