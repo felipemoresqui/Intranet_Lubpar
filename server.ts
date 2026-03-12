@@ -21,14 +21,43 @@ function getSupabase() {
   return supabaseClient;
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
+async function startServer() {
   app.use(express.json());
 
   // API Routes
   
+  // Debug endpoint
+  app.get('/api/debug-db', async (req, res) => {
+    try {
+      const url = process.env.SUPABASE_URL;
+      const key = process.env.SUPABASE_ANON_KEY;
+      
+      if (!url || !key) {
+        return res.json({ 
+          status: 'error', 
+          message: 'Variáveis de ambiente ausentes na Vercel.',
+          missing: { url: !url, key: !key }
+        });
+      }
+
+      const supabase = getSupabase();
+      const { data, error } = await supabase.from('assets').select('id').limit(1);
+      
+      if (error) throw error;
+      
+      res.json({ 
+        status: 'success', 
+        message: 'Conexão com Supabase estabelecida com sucesso.',
+        dataFound: !!data
+      });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
+    }
+  });
+
   // Assets
   app.get('/api/assets', async (req, res) => {
     try {
@@ -311,9 +340,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();
+
+export { app };
+export default app;
