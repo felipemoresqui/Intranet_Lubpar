@@ -113,6 +113,10 @@ const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setCategoryConfigs(data);
+        // Seleciona a primeira categoria automaticamente se nenhuma estiver selecionada
+        if (data.length > 0 && !selectedCategory) {
+          setSelectedCategory(data[0].category);
+        }
       }
     } catch (error) {
       console.error('Erro ao buscar configs:', error);
@@ -332,20 +336,6 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <button 
-                    onClick={() => setSelectedCategory(null)}
-                    className={`p-4 rounded-2xl border text-left transition-all ${
-                      selectedCategory === null 
-                      ? 'bg-zinc-900 border-zinc-900 text-white shadow-lg' 
-                      : 'bg-white border-zinc-200 text-zinc-900 hover:border-zinc-300'
-                    }`}
-                  >
-                    <h4 className="font-bold text-sm">Todos os Ativos</h4>
-                    <p className={`text-[10px] ${selectedCategory === null ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                      {assets.length} itens no total
-                    </p>
-                  </button>
-
                   {categoryConfigs.map((config) => (
                     <div 
                       key={config.id} 
