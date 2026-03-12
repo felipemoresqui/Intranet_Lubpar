@@ -30,14 +30,91 @@ async function startServer() {
   // API simplificada apenas para o Dashboard
   app.get('/api/stats', async (req, res) => {
     try {
-      // Retornando dados zerados por enquanto, já que as tabelas foram apagadas
+      const supabase = getSupabase();
+      const { count: assetCount } = await supabase.from('assets').select('*', { count: 'exact', head: true });
       res.json({
-        totals: { assets: 0, openTickets: 0, software: 0 },
+        totals: { assets: assetCount || 0, openTickets: 0, software: 0 },
         assetsByType: [],
         ticketsByStatus: []
       });
     } catch (error) {
-      res.status(500).json({ error: 'Erro ao buscar estatísticas' });
+      res.json({ totals: { assets: 0, openTickets: 0, software: 0 }, assetsByType: [], ticketsByStatus: [] });
+    }
+  });
+
+  // Rotas de Configuração de Categorias
+  app.get('/api/category-configs', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.from('category_configs').select('*').order('category');
+      if (error) throw error;
+      res.json(data || []);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/category-configs', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('category_configs')
+        .upsert(req.body, { onConflict: 'category' });
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/category-configs/:category', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase
+        .from('category_configs')
+        .delete()
+        .eq('category', req.params.category);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Rotas de Ativos
+  app.get('/api/assets', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.from('assets').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      res.json(data || []);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/assets', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('assets')
+        .insert([req.body])
+        .select();
+      if (error) throw error;
+      res.json(data?.[0]);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/assets/:id', async (req, res) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.from('assets').delete().eq('id', req.params.id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
   });
 
