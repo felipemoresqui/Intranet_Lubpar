@@ -416,8 +416,18 @@ const App: React.FC = () => {
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200">
                         <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Ativo</th>
-                        <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Categoria</th>
+                        {!selectedCategory && (
+                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Categoria</th>
+                        )}
                         <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Serial</th>
+                        
+                        {/* Colunas Dinâmicas */}
+                        {selectedCategory && categoryConfigs.find(c => c.category === selectedCategory)?.columns.map((col: any) => (
+                          <th key={col.id} className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                            {col.label}
+                          </th>
+                        ))}
+
                         <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Status</th>
                         <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider text-right">Ações</th>
                       </tr>
@@ -430,12 +440,22 @@ const App: React.FC = () => {
                           <td className="px-6 py-4">
                             <div className="font-bold text-sm">{asset.name}</div>
                           </td>
-                          <td className="px-6 py-4">
-                            <span className="px-2 py-1 bg-zinc-100 rounded-lg text-[10px] font-bold text-zinc-600 uppercase">
-                              {asset.type}
-                            </span>
-                          </td>
+                          {!selectedCategory && (
+                            <td className="px-6 py-4">
+                              <span className="px-2 py-1 bg-zinc-100 rounded-lg text-[10px] font-bold text-zinc-600 uppercase">
+                                {asset.type}
+                              </span>
+                            </td>
+                          )}
                           <td className="px-6 py-4 text-sm text-zinc-500">{asset.serial || '-'}</td>
+                          
+                          {/* Dados Dinâmicos */}
+                          {selectedCategory && categoryConfigs.find(c => c.category === selectedCategory)?.columns.map((col: any) => (
+                            <td key={col.id} className="px-6 py-4 text-sm text-zinc-500">
+                              {asset.custom_data?.[col.id] || '-'}
+                            </td>
+                          ))}
+
                           <td className="px-6 py-4">
                             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
                               <CheckCircle2 size={14} />
