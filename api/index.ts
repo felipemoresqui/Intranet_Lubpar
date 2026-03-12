@@ -13,6 +13,13 @@ function getSupabase() {
   if (!supabaseClient) {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_ANON_KEY;
+    
+    console.log('--- Supabase Diagnostic ---');
+    console.log('SUPABASE_URL exists:', !!url);
+    if (url) console.log('SUPABASE_URL starts with:', url.substring(0, 10));
+    console.log('SUPABASE_ANON_KEY exists:', !!key);
+    console.log('---------------------------');
+
     if (!url || !key) {
       throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY environment variables are required');
     }
