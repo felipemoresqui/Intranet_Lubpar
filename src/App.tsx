@@ -235,13 +235,13 @@ export default function App() {
         })
       });
       if (!res.ok) {
-        let errorMessage = 'Falha ao adicionar categoria';
+        const text = await res.text();
+        let errorMessage = text || 'Falha ao adicionar categoria';
         try {
-          const errorData = await res.json();
+          const errorData = JSON.parse(text);
           errorMessage = errorData.error || errorMessage;
         } catch (e) {
-          const text = await res.text();
-          errorMessage = text || errorMessage;
+          // Not JSON, use the text we already have
         }
         throw new Error(errorMessage);
       }
@@ -259,11 +259,14 @@ export default function App() {
     if (!confirm(`Tem certeza que deseja excluir a categoria "${name}"? Ativos vinculados a ela não serão excluídos, mas perderão a categoria.`)) return;
     try {
       const res = await fetch(`/api/categories/${encodeURIComponent(name)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Falha ao excluir categoria');
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Falha ao excluir categoria');
+      }
       fetchData();
       if (selectedCategory === name) setSelectedCategory('Todos');
-    } catch (error) {
-      alert('Erro ao excluir categoria');
+    } catch (error: any) {
+      alert(`Erro ao excluir categoria: ${error.message}`);
     }
   };
 
