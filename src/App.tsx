@@ -235,8 +235,15 @@ export default function App() {
         })
       });
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Falha ao adicionar categoria');
+        let errorMessage = 'Falha ao adicionar categoria';
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          const text = await res.text();
+          errorMessage = text || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
       if (shouldFetch) fetchData();
     } catch (error: any) {
