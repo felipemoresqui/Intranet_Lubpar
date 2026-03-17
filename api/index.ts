@@ -34,19 +34,104 @@ const PORT = 3000;
 app.use(express.json());
 
 // API Routes configuradas IMEDIATAMENTE (sem async)
+app.post('/api/login', async (req, res) => {
+  const { email, password, portalType } = req.body;
+  console.log(`Login attempt: ${email} on ${portalType}`);
+  
+  try {
+    const supabase = getSupabase();
+    const table = portalType === 'Gestão' ? 'gestao_users' : 'portal_users';
+    
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .eq('email', email)
+      .eq('password', password)
+      .single();
+
+    if (error || !data) {
+      return res.status(401).json({ error: 'Credenciais inválidas para este portal.' });
+    }
+
+    res.json({ 
+      success: true, 
+      user: { id: data.id, name: data.name, email: data.email } 
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Erro interno no servidor.' });
+  }
+});
+
 app.get('/api/stats', async (req, res) => {
   console.log('GET /api/stats');
   try {
     const supabase = getSupabase();
     const { count: assetCount } = await supabase.from('assets').select('*', { count: 'exact', head: true });
+    const { count: ticketCount } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'Aberto');
+    
     res.json({
-      totals: { assets: assetCount || 0, openTickets: 0, software: 0 },
+      totals: { assets: assetCount || 0, openTickets: ticketCount || 0, software: 0 },
       assetsByType: [],
       ticketsByStatus: []
     });
   } catch (error) {
     console.error('Stats error:', error);
     res.json({ totals: { assets: 0, openTickets: 0, software: 0 }, assetsByType: [], ticketsByStatus: [] });
+  }
+});
+
+app.get('/api/tickets', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('tickets')
+      .select('*, assets(name)')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tickets', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('tickets')
+      .insert([req.body])
+      .select();
+    if (error) throw error;
+    res.json(data?.[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/tickets/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('tickets')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select();
+    if (error) throw error;
+    res.json(data?.[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/tickets/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('tickets').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
