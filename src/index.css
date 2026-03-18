@@ -3,6 +3,9 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-lubpar-blue: #006699;
+  --color-lubpar-gray: #666666;
+  --color-lubpar-light-blue: #99CCFF;
 }
 
 body {

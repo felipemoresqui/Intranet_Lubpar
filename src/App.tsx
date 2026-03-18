@@ -39,8 +39,19 @@ import {
   Send,
   Paperclip,
   User,
+  Globe,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 
 const ICON_OPTIONS = [
   { name: 'Package', icon: Package },
@@ -59,6 +70,26 @@ const ICON_OPTIONS = [
   { name: 'Tv', icon: Tv },
 ];
 
+const LubparLogo = ({ className = "", iconSize = 24, textSize = "text-xl", showText = true, light = false, suffix = "" }) => (
+  <div className={`flex items-center gap-2 ${className}`}>
+    <div className={`relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden border ${light ? 'bg-white/10 border-white/20' : 'bg-white border-zinc-100'}`}>
+      <Globe size={iconSize} className={light ? 'text-white' : 'text-lubpar-blue'} />
+      <div className={`absolute inset-0 ${light ? 'bg-white/5' : 'bg-lubpar-light-blue/5'} pointer-events-none`} />
+    </div>
+    {showText && (
+      <div className={`font-black ${textSize} tracking-tighter flex items-baseline italic gap-2`}>
+        <div className="flex items-baseline">
+          <span className={light ? 'text-white' : 'text-lubpar-blue'}>LUB</span>
+          <span className={light ? 'text-white/80' : 'text-lubpar-gray'}>PAR</span>
+        </div>
+        {suffix && (
+          <span className={light ? 'text-white/80' : 'text-lubpar-gray'}>{suffix.toUpperCase()}</span>
+        )}
+      </div>
+    )}
+  </div>
+);
+
 const App: React.FC = () => {
   const [selectedPortal, setSelectedPortal] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -66,19 +97,32 @@ const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [stats, setStats] = useState({
-    totals: { assets: 0, openTickets: 0, software: 0 },
+    totals: { assets: 0, openTickets: 0, software: 0, inventory: 0 },
     assetsByType: [],
-    ticketsByStatus: []
+    ticketsByStatus: [],
+    inventoryLevels: []
   });
   const [categoryConfigs, setCategoryConfigs] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
+  const [editingInventory, setEditingInventory] = useState<any | null>(null);
+  const [newInventory, setNewInventory] = useState<any>({
+    name: '',
+    quantity: 0,
+    min_quantity: 0,
+    category: ''
+  });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileData, setProfileData] = useState({ name: '', email: '', password: '' });
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
   const [viewingTicket, setViewingTicket] = useState<any | null>(null);
   const [ticketMessages, setTicketMessages] = useState<any[]>([]);
@@ -131,6 +175,9 @@ const App: React.FC = () => {
       fetchCategoryConfigs();
       fetchAssets();
       fetchTickets();
+      if (selectedPortal === 'Gestão') {
+        fetchInventory();
+      }
     }
   }, [isAuthenticated, user?.id, selectedPortal]);
 
@@ -301,6 +348,57 @@ const App: React.FC = () => {
       setIsSendingMessage(false);
     }
   };
+  const fetchInventory = async () => {
+    try {
+      const res = await fetch('/api/inventory');
+      if (res.ok) {
+        const data = await res.json();
+        setInventory(data);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar estoque:', error);
+    }
+  };
+
+  const saveInventory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const url = editingInventory ? `/api/inventory/${editingInventory.id}` : '/api/inventory';
+      const method = editingInventory ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newInventory)
+      });
+
+      if (res.ok) {
+        showToast(editingInventory ? 'Item atualizado' : 'Item adicionado', 'success');
+        setIsInventoryModalOpen(false);
+        fetchInventory();
+        fetchStats();
+      }
+    } catch (error) {
+      showToast('Erro ao salvar item de estoque');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteInventory = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este item?')) return;
+    try {
+      const res = await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Item excluído', 'success');
+        fetchInventory();
+        fetchStats();
+      }
+    } catch (error) {
+      showToast('Erro ao excluir item');
+    }
+  };
+
   const fetchTickets = async () => {
     try {
       let url = '/api/tickets';
@@ -448,10 +546,48 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: user.id,
+          name: profileData.name,
+          email: profileData.email,
+          password: profileData.password || undefined,
+          portalType: user.portalType
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUser(data.user);
+        setIsProfileModalOpen(false);
+        showToast('Perfil atualizado com sucesso!', 'success');
+      } else {
+        showToast(data.error || 'Erro ao atualizar perfil');
+      }
+    } catch (error) {
+      showToast('Erro de conexão');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setSelectedPortal(null);
+    setIsProfileMenuOpen(false);
+  };
+
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard },
     { name: 'Ativos', icon: Package },
     { name: 'Chamados', icon: Ticket },
+    { name: 'Estoque', icon: HardDrive },
     { name: 'Configurações', icon: Settings },
   ];
 
@@ -496,16 +632,16 @@ const App: React.FC = () => {
             onClick={() => setSelectedPortal('Portal Lubpar')}
             className="group relative bg-white p-12 rounded-[40px] shadow-xl shadow-zinc-200 border border-zinc-100 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
           >
-            <div className="w-20 h-20 bg-zinc-900 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-zinc-200 group-hover:rotate-6 transition-transform">
-              <Package className="text-white w-10 h-10" />
+            <div className="w-20 h-20 bg-lubpar-blue/5 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-zinc-100 group-hover:rotate-6 transition-transform">
+              <LubparLogo showText={false} iconSize={40} />
             </div>
-            <h2 className="text-3xl font-bold text-zinc-900 mb-4">Portal Lubpar</h2>
+            <h2 className="text-3xl font-bold text-lubpar-blue mb-4">Portal Lubpar</h2>
             <p className="text-zinc-500 leading-relaxed">Acesse o portal institucional, comunicados e recursos gerais da empresa.</p>
-            <div className="mt-8 flex items-center gap-2 text-zinc-900 font-bold">
+            <div className="mt-8 flex items-center gap-2 text-lubpar-blue font-bold">
               Acessar agora <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </div>
             <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-              <Package size={120} />
+              <Globe size={120} className="text-lubpar-blue" />
             </div>
           </motion.button>
 
@@ -513,13 +649,13 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             onClick={() => setSelectedPortal('Gestão')}
-            className="group relative bg-zinc-900 p-12 rounded-[40px] shadow-xl shadow-zinc-900/20 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
+            className="group relative bg-lubpar-blue p-12 rounded-[40px] shadow-xl shadow-lubpar-blue/20 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
           >
-            <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-white/10 group-hover:-rotate-6 transition-transform">
-              <Settings className="text-zinc-900 w-10 h-10" />
+            <div className="w-20 h-20 bg-white/10 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-white/5 group-hover:-rotate-6 transition-transform">
+              <LubparLogo showText={false} iconSize={40} light />
             </div>
             <h2 className="text-3xl font-bold text-white mb-4">Gestão TI</h2>
-            <p className="text-zinc-400 leading-relaxed">Gerencie ativos, chamados técnicos e configurações de infraestrutura.</p>
+            <p className="text-white/60 leading-relaxed">Gerencie ativos, chamados técnicos e configurações de infraestrutura.</p>
             <div className="mt-8 flex items-center gap-2 text-white font-bold">
               Entrar no sistema <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </div>
@@ -569,10 +705,13 @@ const App: React.FC = () => {
             >
               <ChevronRight size={24} className="rotate-180" />
             </button>
-            <div className="w-16 h-16 bg-zinc-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-zinc-200">
-              {selectedPortal === 'Gestão' ? <Settings className="text-white w-8 h-8" /> : <Package className="text-white w-8 h-8" />}
+            <div className="mb-6">
+              <LubparLogo 
+                className="justify-center" 
+                textSize="text-2xl" 
+                suffix={selectedPortal === 'Gestão' ? 'Gestão' : ''} 
+              />
             </div>
-            <h1 className="text-2xl font-bold text-zinc-900 mb-2">{selectedPortal}</h1>
             <p className="text-zinc-500 text-sm">Entre com suas credenciais para acessar o portal.</p>
           </div>
 
@@ -585,7 +724,7 @@ const App: React.FC = () => {
                 value={loginData.email}
                 onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
                 placeholder="email@lubpar.com.br"
-                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-zinc-900 focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
               />
             </div>
             <div>
@@ -596,22 +735,22 @@ const App: React.FC = () => {
                 value={loginData.password}
                 onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                 placeholder="••••••••"
-                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-zinc-900 focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
               />
             </div>
             
             <div className="flex items-center justify-between text-xs">
               <label className="flex items-center gap-2 text-zinc-500 cursor-pointer">
-                <input type="checkbox" className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" />
+                <input type="checkbox" className="rounded border-zinc-300 text-lubpar-blue focus:ring-lubpar-blue" />
                 Lembrar de mim
               </label>
-              <a href="#" className="font-bold text-zinc-900 hover:underline">Esqueceu a senha?</a>
+              <a href="#" className="font-bold text-lubpar-blue hover:underline">Esqueceu a senha?</a>
             </div>
 
             <button 
               type="submit"
               disabled={isLoading}
-              className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-sm hover:bg-zinc-800 transition-all shadow-xl shadow-zinc-200 mt-4 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-4 bg-lubpar-blue text-white rounded-2xl font-bold text-sm hover:bg-opacity-90 transition-all shadow-xl shadow-lubpar-blue/20 mt-4 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? 'Autenticando...' : 'Acessar Portal'}
             </button>
@@ -671,17 +810,7 @@ const App: React.FC = () => {
         lg:relative lg:translate-x-0
       `}>
         <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center">
-              {selectedPortal === 'Gestão' ? <Settings className="text-white w-6 h-6" /> : <Package className="text-white w-6 h-6" />}
-            </div>
-            <div>
-              <h1 className="font-bold text-lg leading-tight">Lubpar</h1>
-              <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
-                {selectedPortal === 'Gestão' ? 'Gestão de TI' : 'Portal Lubpar'}
-              </p>
-            </div>
-          </div>
+          <LubparLogo textSize="text-lg" suffix={selectedPortal === 'Gestão' ? 'Gestão' : ''} />
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-zinc-400 hover:text-zinc-900">
             <X size={20} />
           </button>
@@ -698,7 +827,7 @@ const App: React.FC = () => {
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   activeTab === item.name
-                    ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-200'
+                    ? 'bg-lubpar-blue text-white shadow-lg shadow-lubpar-blue/20' 
                     : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
                 }`}
               >
@@ -722,7 +851,7 @@ const App: React.FC = () => {
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   activeTab === item.name
-                    ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-200'
+                    ? 'bg-lubpar-blue text-white shadow-lg shadow-lubpar-blue/20' 
                     : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
                 }`}
               >
@@ -735,10 +864,7 @@ const App: React.FC = () => {
 
         <div className="p-4 border-t border-zinc-100">
           <button 
-            onClick={() => {
-              setIsAuthenticated(false);
-              setSelectedPortal(null);
-            }}
+            onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
           >
             <LogOut size={20} />
@@ -769,8 +895,52 @@ const App: React.FC = () => {
                   className="pl-10 pr-4 py-2 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl text-sm w-48 lg:w-64 transition-all outline-none"
                 />
               </div>
-              <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-zinc-200 border-2 border-white shadow-sm overflow-hidden shrink-0">
-                <img src="https://picsum.photos/seed/user/100/100" alt="Avatar" referrerPolicy="no-referrer" />
+              <div className="relative">
+                <button 
+                  onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                  className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-zinc-200 border-2 border-white shadow-sm overflow-hidden shrink-0 hover:border-lubpar-blue transition-colors"
+                >
+                  <img src="https://picsum.photos/seed/user/100/100" alt="Avatar" referrerPolicy="no-referrer" />
+                </button>
+
+                <AnimatePresence>
+                  {isProfileMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsProfileMenuOpen(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-zinc-100 py-2 z-50 overflow-hidden"
+                      >
+                        <div className="px-4 py-3 border-b border-zinc-50">
+                          <p className="text-sm font-bold text-zinc-900 truncate">{user?.name}</p>
+                          <p className="text-[10px] text-zinc-500 truncate uppercase tracking-wider">{user?.email}</p>
+                        </div>
+                        <div className="p-1">
+                          <button 
+                            onClick={() => {
+                              setProfileData({ name: user.name, email: user.email, password: '' });
+                              setIsProfileModalOpen(true);
+                              setIsProfileMenuOpen(false);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors"
+                          >
+                            <User size={18} />
+                            Editar Perfil
+                          </button>
+                          <button 
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <LogOut size={18} />
+                            Sair
+                          </button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           </div>
@@ -786,7 +956,7 @@ const App: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {[
-                  { title: 'Abrir Chamado', desc: 'Solicite suporte técnico ou manutenção.', icon: Ticket, color: 'bg-zinc-900', action: () => setIsTicketModalOpen(true) },
+                  { title: 'Chamados', desc: 'Gerencie e solicite suporte técnico ou manutenção.', icon: Ticket, color: 'bg-zinc-900', action: () => setActiveTab('Chamados') },
                   { title: 'Tracking de pedidos', desc: 'Acompanhe o status de suas entregas.', icon: Truck, color: 'bg-blue-600', action: () => setActiveTab('Meus Pedidos') },
                   { title: '2ª de boleto', desc: 'Emita a segunda via de seus boletos.', icon: FileText, color: 'bg-emerald-600', action: () => setActiveTab('Financeiro') },
                   { title: 'Checklist de Frota', desc: 'Realize a conferência de veículos.', icon: ClipboardCheck, color: 'bg-orange-600', action: () => setActiveTab('Frota') },
@@ -811,105 +981,16 @@ const App: React.FC = () => {
                 ))}
               </div>
 
-              {/* Recent Tickets for Portal Lubpar */}
-              <div className="mt-12">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-zinc-900">Meus Chamados Recentes</h3>
-                  <button 
-                    onClick={() => setActiveTab('Chamados')} 
-                    className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors"
-                  >
-                    Ver todos
-                  </button>
-                </div>
-                
-                <div className="bg-white rounded-[32px] border border-zinc-200 overflow-hidden shadow-sm">
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200">
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Título</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Status</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Data</th>
-                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 5).map((ticket) => (
-                          <tr key={ticket.id} className="hover:bg-zinc-50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="font-medium text-zinc-900">{ticket.title}</div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                ticket.status === 'Aberto' ? 'bg-orange-100 text-orange-600' :
-                                ticket.status === 'Em análise' ? 'bg-blue-100 text-blue-600' :
-                                ticket.status === 'Encerrado' ? 'bg-emerald-100 text-emerald-600' :
-                                'bg-zinc-100 text-zinc-600'
-                              }`}>
-                                {ticket.status}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-zinc-500">
-                              {new Date(ticket.created_at).toLocaleDateString('pt-BR')}
-                            </td>
-                            <td className="px-6 py-4">
-                              <button 
-                                onClick={() => setViewingTicket(ticket)}
-                                className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-900 transition-all"
-                              >
-                                <MessageSquare size={18} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile Card View */}
-                  <div className="md:hidden divide-y divide-zinc-100">
-                    {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 5).map((ticket) => (
-                      <div key={ticket.id} className="p-6 space-y-4 hover:bg-zinc-50 transition-colors" onClick={() => setViewingTicket(ticket)}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="font-bold text-zinc-900 leading-tight">{ticket.title}</div>
-                          <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            ticket.status === 'Aberto' ? 'bg-orange-100 text-orange-600' :
-                            ticket.status === 'Em análise' ? 'bg-blue-100 text-blue-600' :
-                            ticket.status === 'Encerrado' ? 'bg-emerald-100 text-emerald-600' :
-                            'bg-zinc-100 text-zinc-600'
-                          }`}>
-                            {ticket.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                          <span>{new Date(ticket.created_at).toLocaleDateString('pt-BR')}</span>
-                          <div className="flex items-center gap-1 text-blue-600">
-                            VER DETALHES <ChevronRight size={12} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length === 0 && (
-                    <div className="px-6 py-12 text-center text-zinc-500 italic text-sm">
-                      Nenhum chamado encontrado.
-                    </div>
-                  )}
-                </div>
-              </div>
-
             </div>
           ) : activeTab === 'Dashboard' ? (
             <div className="space-y-8">
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 {[
                   { label: 'Total de Ativos', value: stats.totals.assets, icon: Package, color: 'bg-blue-500' },
                   { label: 'Chamados Abertos', value: stats.totals.openTickets, icon: Ticket, color: 'bg-orange-500' },
-                  { label: 'Softwares', value: stats.totals.software, icon: Monitor, color: 'bg-emerald-500' },
+                  { label: 'Itens em Estoque', value: stats.totals.inventory, icon: HardDrive, color: 'bg-emerald-500' },
+                  { label: 'Softwares', value: stats.totals.software, icon: Monitor, color: 'bg-purple-500' },
                 ].map((stat, i) => (
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -929,24 +1010,179 @@ const App: React.FC = () => {
                 ))}
               </div>
 
-              {/* Welcome Card */}
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-zinc-900 rounded-3xl p-8 text-white relative overflow-hidden"
-              >
-                <div className="relative z-10">
-                  <h3 className="text-2xl font-bold mb-2">Bem-vindo ao Lubpar TI</h3>
-                  <p className="text-zinc-400 max-w-md">
-                    O sistema foi reiniciado. Começaremos a reconstruir as funcionalidades a partir daqui para garantir estabilidade total.
-                  </p>
-                  <button className="mt-6 bg-white text-zinc-900 px-6 py-2 rounded-xl font-bold text-sm hover:bg-zinc-100 transition-colors">
-                    Ver Documentação
-                  </button>
+              {/* Charts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h4 className="text-lg font-bold text-zinc-900">Níveis de Estoque</h4>
+                      <p className="text-sm text-zinc-500">Quantidade por equipamento</p>
+                    </div>
+                    <HardDrive className="text-zinc-400" size={24} />
+                  </div>
+                  
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={stats.inventoryLevels}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#71717a', fontSize: 12 }}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#71717a', fontSize: 12 }}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: '#f8fafc' }}
+                          contentStyle={{ 
+                            borderRadius: '16px', 
+                            border: 'none', 
+                            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' 
+                          }}
+                        />
+                        <Bar dataKey="quantity" radius={[6, 6, 0, 0]} barSize={40}>
+                          {stats.inventoryLevels.map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={entry.quantity < entry.min_quantity ? '#ef4444' : '#006699'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </motion.div>
+
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-lubpar-blue rounded-[32px] p-8 text-white relative overflow-hidden flex flex-col justify-center"
+                >
+                  <div className="relative z-10">
+                    <h3 className="text-2xl font-bold mb-4">Resumo do Sistema</h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-white/10 rounded-2xl backdrop-blur-sm">
+                        <span className="text-sm font-medium">Chamados Críticos</span>
+                        <span className="font-bold">0</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-white/10 rounded-2xl backdrop-blur-sm">
+                        <span className="text-sm font-medium">Ativos em Manutenção</span>
+                        <span className="font-bold">0</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 bg-white/10 rounded-2xl backdrop-blur-sm">
+                        <span className="text-sm font-medium">Itens com Estoque Baixo</span>
+                        <span className="font-bold text-red-300">
+                          {stats.inventoryLevels.filter((i: any) => i.quantity < i.min_quantity).length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute right-0 bottom-0 p-8 opacity-10">
+                    <LayoutDashboard size={160} />
+                  </div>
+                </motion.div>
+              </div>
+            </div>
+          ) : activeTab === 'Estoque' ? (
+            <div className="space-y-8">
+              <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-bold text-zinc-900">Estoque de Equipamentos</h3>
+                  <p className="text-zinc-500">Controle de suprimentos e periféricos de TI.</p>
                 </div>
-                <div className="absolute right-0 top-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl" />
-                <div className="absolute left-1/2 bottom-0 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
-              </motion.div>
+                <button 
+                  onClick={() => {
+                    setEditingInventory(null);
+                    setNewInventory({ name: '', quantity: 0, min_quantity: 5, category: '' });
+                    setIsInventoryModalOpen(true);
+                  }}
+                  className="bg-lubpar-blue text-white px-6 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all shadow-xl shadow-lubpar-blue/20"
+                >
+                  <Plus size={20} />
+                  Novo Item
+                </button>
+              </header>
+
+              <div className="bg-white rounded-[32px] border border-zinc-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                        <th className="px-6 py-4 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Item</th>
+                        <th className="px-6 py-4 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Categoria</th>
+                        <th className="px-6 py-4 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Quantidade</th>
+                        <th className="px-6 py-4 text-left text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-right text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {inventory.map((item) => {
+                        const isLow = item.quantity <= item.min_quantity;
+                        return (
+                          <tr key={item.id} className="hover:bg-zinc-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-sm">{item.name}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="px-2 py-1 bg-zinc-100 rounded-lg text-[10px] font-bold text-zinc-600 uppercase">
+                                {item.category || 'Geral'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <span className={`font-bold ${isLow ? 'text-red-500' : 'text-zinc-900'}`}>
+                                  {item.quantity}
+                                </span>
+                                <span className="text-xs text-zinc-400">/ min {item.min_quantity}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
+                                isLow ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+                              }`}>
+                                {isLow ? 'Estoque Baixo' : 'Normal'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button 
+                                  onClick={() => {
+                                    setEditingInventory(item);
+                                    setNewInventory({ ...item });
+                                    setIsInventoryModalOpen(true);
+                                  }}
+                                  className="p-2 text-zinc-400 hover:text-lubpar-blue transition-colors"
+                                >
+                                  <Settings size={18} />
+                                </button>
+                                <button 
+                                  onClick={() => deleteInventory(item.id)}
+                                  className="p-2 text-zinc-400 hover:text-red-500 transition-colors"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {inventory.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-20 text-center text-zinc-400">
+                            <HardDrive size={48} className="mx-auto mb-4 opacity-20" />
+                            <p className="font-medium">Nenhum item no estoque</p>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           ) : activeTab === 'Ativos' ? (
             <div className="space-y-8">
@@ -1117,7 +1353,7 @@ const App: React.FC = () => {
             {/* Header Card */}
             <div className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
               <div>
-                <h3 className="text-2xl font-bold text-zinc-900">
+                <h3 className="text-2xl font-bold text-lubpar-blue">
                   {selectedPortal === 'Gestão' ? 'Gestão de Chamados' : 'Central de Chamados'}
                 </h3>
                 <p className="text-zinc-500 mt-1">
@@ -1128,7 +1364,7 @@ const App: React.FC = () => {
               </div>
               <button 
                 onClick={() => setIsTicketModalOpen(true)}
-                className="bg-[#1e3a5f] text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-[#152a45] transition-all shadow-lg shadow-blue-900/10 whitespace-nowrap"
+                className="bg-lubpar-blue text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-opacity-90 transition-all shadow-lg shadow-lubpar-blue/10 whitespace-nowrap"
               >
                 <Plus size={20} />
                 Novo Chamado
@@ -1263,34 +1499,36 @@ const App: React.FC = () => {
 
               {/* Sidebar */}
               <div className="space-y-6">
-                {/* SLA Card */}
-                <div className="bg-[#1e3a5f] p-8 rounded-[32px] text-white shadow-xl shadow-blue-900/20">
-                  <h4 className="text-lg font-bold mb-2">SLA de Atendimento</h4>
-                  <p className="text-blue-200 text-xs leading-relaxed mb-6">
-                    Nossa equipe trabalha para responder todas as solicitações o mais rápido possível.
-                  </p>
-                  
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
-                        <span>Crítico</span>
-                        <span>2 horas</span>
+                {/* SLA Card - Only for Gestão portal */}
+                {selectedPortal === 'Gestão' && (
+                  <div className="bg-lubpar-blue p-8 rounded-[32px] text-white shadow-xl shadow-lubpar-blue/20">
+                    <h4 className="text-lg font-bold mb-2">SLA de Atendimento</h4>
+                    <p className="text-white/60 text-xs leading-relaxed mb-6">
+                      Nossa equipe trabalha para responder todas as solicitações o mais rápido possível.
+                    </p>
+                    
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
+                          <span>Crítico</span>
+                          <span>2 horas</span>
+                        </div>
+                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-500 w-full" />
+                        </div>
                       </div>
-                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-red-500 w-full" />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
-                        <span>Média / Baixa</span>
-                        <span>24 horas</span>
-                      </div>
-                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-400 w-1/3" />
+                      <div>
+                        <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
+                          <span>Média / Baixa</span>
+                          <span>24 horas</span>
+                        </div>
+                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-400 w-1/3" />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* FAQ Card */}
                 <div className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm">
@@ -1779,13 +2017,18 @@ const App: React.FC = () => {
                       { label: 'Pendente cliente', color: 'bg-orange-400' },
                       { label: 'Validação cliente', color: 'bg-zinc-300' },
                       { label: 'Encerrado', color: 'bg-zinc-300' }
-                    ].map((step, idx) => {
+                    ].filter((_, idx) => {
+                      if (selectedPortal !== 'Portal Lubpar') return true;
                       const statuses = ['Aberto', 'Em análise', 'Pendente cliente', 'Validação cliente', 'Encerrado'];
                       const currentIdx = statuses.indexOf(viewingTicket.status);
-                      const isPast = currentIdx >= idx;
+                      return idx <= currentIdx;
+                    }).map((step, idx, filteredArray) => {
+                      const statuses = ['Aberto', 'Em análise', 'Pendente cliente', 'Validação cliente', 'Encerrado'];
+                      const currentIdx = statuses.indexOf(viewingTicket.status);
+                      const isPast = currentIdx >= statuses.indexOf(step.label);
                       
                       return (
-                        <div key={idx} className="flex-1 min-w-[120px]">
+                        <div key={idx} className={`${selectedPortal === 'Portal Lubpar' ? 'flex-none w-auto pr-4' : 'flex-1 min-w-[120px]'}`}>
                           <div className="flex items-center gap-1.5 mb-2">
                             <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isPast ? 'text-emerald-500' : 'text-zinc-300'}`}>
                               <CheckCircle2 size={14} />
@@ -1899,6 +2142,165 @@ const App: React.FC = () => {
                     Observação: Para enviar anexos superiores a 20mb, <a href="#" className="text-blue-500 underline">clique aqui!</a>
                   </div>
                 </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Inventory Modal */}
+        <AnimatePresence>
+          {isInventoryModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-zinc-100"
+              >
+                <div className="p-8 pb-0 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-zinc-900">
+                    {editingInventory ? 'Editar Item' : 'Novo Item de Estoque'}
+                  </h3>
+                  <button onClick={() => setIsInventoryModalOpen(false)} className="text-zinc-400 hover:text-zinc-900">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <form onSubmit={saveInventory} className="p-8 space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nome do Equipamento</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newInventory.name}
+                      onChange={(e) => setNewInventory({ ...newInventory, name: e.target.value })}
+                      placeholder="Ex: Mouse Logitech G203"
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Categoria</label>
+                    <input 
+                      type="text" 
+                      value={newInventory.category}
+                      onChange={(e) => setNewInventory({ ...newInventory, category: e.target.value })}
+                      placeholder="Ex: Periféricos"
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Quantidade Atual</label>
+                      <input 
+                        type="number" 
+                        required
+                        min="0"
+                        value={newInventory.quantity}
+                        onChange={(e) => setNewInventory({ ...newInventory, quantity: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Mínimo Desejado</label>
+                      <input 
+                        type="number" 
+                        required
+                        min="0"
+                        value={newInventory.min_quantity}
+                        onChange={(e) => setNewInventory({ ...newInventory, min_quantity: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button 
+                      type="button"
+                      onClick={() => setIsInventoryModalOpen(false)}
+                      className="flex-1 py-4 bg-zinc-100 text-zinc-600 rounded-2xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="flex-1 py-4 bg-lubpar-blue text-white rounded-2xl font-bold text-sm hover:bg-opacity-90 transition-all shadow-xl shadow-lubpar-blue/20 disabled:opacity-50"
+                    >
+                      {isLoading ? 'Salvando...' : 'Salvar Item'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Profile Modal */}
+        <AnimatePresence>
+          {isProfileModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-zinc-100"
+              >
+                <div className="p-8 pb-0 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-zinc-900">Editar Perfil</h3>
+                  <button onClick={() => setIsProfileModalOpen(false)} className="text-zinc-400 hover:text-zinc-900">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateProfile} className="p-8 space-y-5">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nome Completo</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={profileData.name}
+                      onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">E-mail</label>
+                    <input 
+                      type="email" 
+                      required
+                      value={profileData.email}
+                      onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nova Senha (opcional)</label>
+                    <input 
+                      type="password" 
+                      value={profileData.password}
+                      onChange={(e) => setProfileData({ ...profileData, password: e.target.value })}
+                      placeholder="Deixe em branco para manter a atual"
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-lubpar-blue focus:ring-0 rounded-xl outline-none transition-all text-sm"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button 
+                      type="button"
+                      onClick={() => setIsProfileModalOpen(false)}
+                      className="flex-1 py-4 bg-zinc-100 text-zinc-600 rounded-2xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="flex-1 py-4 bg-lubpar-blue text-white rounded-2xl font-bold text-sm hover:bg-opacity-90 transition-all shadow-xl shadow-lubpar-blue/20 disabled:opacity-50"
+                    >
+                      {isLoading ? 'Salvando...' : 'Salvar Alterações'}
+                    </button>
+                  </div>
+                </form>
               </motion.div>
             </div>
           )}

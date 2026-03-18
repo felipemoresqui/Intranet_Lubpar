@@ -55,7 +55,7 @@ app.post('/api/login', async (req, res) => {
 
     res.json({ 
       success: true, 
-      user: { id: data.id, name: data.name, email: data.email } 
+      user: { id: data.id, name: data.name, email: data.email, portalType } 
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -84,13 +84,22 @@ app.get('/api/stats', async (req, res) => {
     const { count: assetCount, error: assetError } = await assetQuery;
     const { count: ticketCount, error: ticketError } = await ticketQuery;
     
+    // Inventory stats
+    const { data: inventoryData, error: inventoryError } = await supabase
+      .from('inventory')
+      .select('name, quantity, min_quantity');
+    
     if (assetError) console.error('Asset count error:', JSON.stringify(assetError, null, 2));
     if (ticketError) console.error('Ticket count error:', JSON.stringify(ticketError, null, 2));
+    if (inventoryError) console.error('Inventory stats error:', JSON.stringify(inventoryError, null, 2));
+
+    const totalInventory = inventoryData?.reduce((acc, item) => acc + (item.quantity || 0), 0) || 0;
 
     res.json({
-      totals: { assets: assetCount || 0, openTickets: ticketCount || 0, software: 0 },
+      totals: { assets: assetCount || 0, openTickets: ticketCount || 0, software: 0, inventory: totalInventory },
       assetsByType: [],
-      ticketsByStatus: []
+      ticketsByStatus: [],
+      inventoryLevels: inventoryData || []
     });
   } catch (error) {
     console.error('Stats error:', JSON.stringify(error, null, 2));
@@ -283,6 +292,86 @@ app.delete('/api/assets/:id', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/inventory', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('inventory')
+      .select('*')
+      .order('name');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/inventory', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('inventory')
+      .insert([req.body])
+      .select();
+    if (error) throw error;
+    res.json(data?.[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/inventory/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('inventory')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select();
+    if (error) throw error;
+    res.json(data?.[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/inventory/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase
+      .from('inventory')
+      .delete()
+      .eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/profile', async (req, res) => {
+  const { id, name, email, password, portalType } = req.body;
+  try {
+    const supabase = getSupabase();
+    const table = portalType === 'Gestão' ? 'gestao_users' : 'portal_users';
+    
+    const updateData: any = { name, email };
+    if (password) updateData.password = password;
+
+    const { data, error } = await supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json({ success: true, user: { id: data[0].id, name: data[0].name, email: data[0].email, portalType } });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Erro ao atualizar perfil.' });
   }
 });
 
