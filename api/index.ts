@@ -66,43 +66,85 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
   console.log('GET /api/stats');
   try {
+    const { user_id } = req.query;
     const supabase = getSupabase();
-    const { count: assetCount } = await supabase.from('assets').select('*', { count: 'exact', head: true });
-    const { count: ticketCount } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'Aberto');
     
+    let assetQuery = supabase.from('assets').select('*', { count: 'exact', head: true });
+    let ticketQuery = supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'Aberto');
+    
+    if (user_id) {
+      const userIdNum = Number(user_id);
+      if (!isNaN(userIdNum)) {
+        ticketQuery = ticketQuery.eq('user_id', userIdNum);
+      } else {
+        ticketQuery = ticketQuery.eq('user_id', user_id);
+      }
+    }
+
+    const { count: assetCount, error: assetError } = await assetQuery;
+    const { count: ticketCount, error: ticketError } = await ticketQuery;
+    
+    if (assetError) console.error('Asset count error:', JSON.stringify(assetError, null, 2));
+    if (ticketError) console.error('Ticket count error:', JSON.stringify(ticketError, null, 2));
+
     res.json({
       totals: { assets: assetCount || 0, openTickets: ticketCount || 0, software: 0 },
       assetsByType: [],
       ticketsByStatus: []
     });
   } catch (error) {
-    console.error('Stats error:', error);
+    console.error('Stats error:', JSON.stringify(error, null, 2));
     res.json({ totals: { assets: 0, openTickets: 0, software: 0 }, assetsByType: [], ticketsByStatus: [] });
   }
 });
 
 app.get('/api/tickets', async (req, res) => {
+  console.log('GET /api/tickets', req.query);
   try {
+    const { user_id } = req.query;
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    
+    // Removendo o join com assets que está causando erro de relacionamento
+    let query = supabase
       .from('tickets')
-      .select('*, assets(name)')
+      .select('*')
       .order('created_at', { ascending: false });
-    if (error) throw error;
+
+    if (user_id && user_id !== 'undefined') {
+      const userIdNum = Number(user_id);
+      if (!isNaN(userIdNum)) {
+        query = query.eq('user_id', userIdNum);
+      } else {
+        query = query.eq('user_id', user_id);
+      }
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('Supabase tickets error:', JSON.stringify(error, null, 2));
+      throw error;
+    }
+    
+    console.log(`Found ${data?.length || 0} tickets`);
     res.json(data || []);
   } catch (error) {
+    console.error('Route /api/tickets error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/tickets', async (req, res) => {
+  console.log('POST /api/tickets body:', req.body);
   try {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('tickets')
       .insert([req.body])
       .select();
-    if (error) throw error;
+    if (error) {
+      console.error('Insert ticket error:', error);
+      throw error;
+    }
     res.json(data?.[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -130,6 +172,35 @@ app.delete('/api/tickets/:id', async (req, res) => {
     const { error } = await supabase.from('tickets').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/tickets/:id/messages', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('ticket_messages')
+      .select('*')
+      .eq('ticket_id', req.params.id)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tickets/:id/messages', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('ticket_messages')
+      .insert([{ ...req.body, ticket_id: req.params.id }])
+      .select();
+    if (error) throw error;
+    res.json(data?.[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

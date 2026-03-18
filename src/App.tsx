@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Package, 
@@ -27,7 +27,18 @@ import {
   Mouse,
   Headphones,
   Camera,
-  Tv
+  Tv,
+  Truck,
+  FileText,
+  ClipboardCheck,
+  CreditCard,
+  Car,
+  MessageSquare,
+  Image as ImageIcon,
+  Trash2,
+  Send,
+  Paperclip,
+  User,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -52,6 +63,7 @@ const App: React.FC = () => {
   const [selectedPortal, setSelectedPortal] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginData, setLoginData] = useState({ email: '', password: '' });
+  const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [stats, setStats] = useState({
     totals: { assets: 0, openTickets: 0, software: 0 },
@@ -62,12 +74,25 @@ const App: React.FC = () => {
   const [assets, setAssets] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [isResolutionModalOpen, setIsResolutionModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<any | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [ticketMessages]);
   const [editingCategory, setEditingCategory] = useState<any | null>(null);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryIcon, setNewCategoryIcon] = useState('Package');
@@ -83,10 +108,12 @@ const App: React.FC = () => {
     description: '',
     priority: 'Média',
     status: 'Aberto',
-    asset_id: ''
+    asset_id: '',
+    attachments: []
   });
   const [resolutionText, setResolutionText] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => {
     setToast({ message, type });
@@ -94,11 +121,18 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchStats();
-    fetchCategoryConfigs();
-    fetchAssets();
-    fetchTickets();
-  }, []);
+    console.log('Current User:', user);
+    console.log('Current Tickets:', tickets);
+  }, [user, tickets]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchStats();
+      fetchCategoryConfigs();
+      fetchAssets();
+      fetchTickets();
+    }
+  }, [isAuthenticated, user?.id, selectedPortal]);
 
   const openCategoryModal = (config?: any) => {
     if (config) {
@@ -115,9 +149,40 @@ const App: React.FC = () => {
     setIsCategoryModalOpen(true);
   };
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        if (blob) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const base64 = event.target?.result as string;
+            setNewTicket((prev: any) => ({
+              ...prev,
+              attachments: [...(prev.attachments || []), base64]
+            }));
+          };
+          reader.readAsDataURL(blob);
+        }
+      }
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setNewTicket((prev: any) => ({
+      ...prev,
+      attachments: prev.attachments.filter((_: any, i: number) => i !== index)
+    }));
+  };
+
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/stats');
+      let url = '/api/stats';
+      if (selectedPortal === 'Portal Lubpar' && user?.id) {
+        url += `?user_id=${user.id}`;
+      }
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -189,26 +254,103 @@ const App: React.FC = () => {
     }
   };
 
-  const fetchTickets = async () => {
+  useEffect(() => {
+    if (viewingTicket) {
+      fetchTicketMessages(viewingTicket.id);
+    }
+  }, [viewingTicket]);
+
+  const fetchTicketMessages = async (ticketId: number) => {
     try {
-      const res = await fetch('/api/tickets');
+      const res = await fetch(`/api/tickets/${ticketId}/messages`);
       if (res.ok) {
         const data = await res.json();
+        setTicketMessages(data);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar mensagens:', error);
+    }
+  };
+
+  const sendTicketMessage = async () => {
+    if (!newMessage.trim() || !viewingTicket) return;
+    setIsSendingMessage(true);
+    try {
+      const messageData = {
+        user_id: user.id,
+        user_name: user.name,
+        message: newMessage,
+        is_admin: selectedPortal === 'Gestão',
+        created_at: new Date().toISOString()
+      };
+
+      const res = await fetch(`/api/tickets/${viewingTicket.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(messageData)
+      });
+
+      if (res.ok) {
+        setNewMessage('');
+        fetchTicketMessages(viewingTicket.id);
+      }
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      showToast('Erro ao enviar mensagem', 'error');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+  const fetchTickets = async () => {
+    try {
+      let url = '/api/tickets';
+      if (selectedPortal === 'Portal Lubpar' && user?.id) {
+        url += `?user_id=${user.id}`;
+      }
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('Tickets fetched:', data);
         setTickets(data);
+      } else {
+        const errorData = await res.json();
+        console.error('Error fetching tickets:', errorData);
+        showToast('Erro ao carregar chamados: ' + (errorData.error || res.statusText), 'error');
       }
     } catch (error) {
       console.error('Erro ao buscar chamados:', error);
+      showToast('Erro de conexão ao buscar chamados', 'error');
     }
   };
 
   const saveTicket = async () => {
     if (!newTicket.title.trim()) return showToast('Título é obrigatório');
     try {
+      // Limpa o objeto para o Supabase (converte string vazia em null para FKs)
+      const ticketData: any = {
+        title: newTicket.title,
+        description: newTicket.description,
+        priority: newTicket.priority,
+        status: newTicket.status,
+        asset_id: newTicket.asset_id === '' ? null : newTicket.asset_id
+      };
+
+      // Só inclui o user_id se o usuário estiver logado
+      if (user?.id) {
+        ticketData.user_id = user.id;
+      }
+
+      // Só inclui anexos se houver algum, para evitar erro caso a coluna não exista
+      if (newTicket.attachments && newTicket.attachments.length > 0) {
+        ticketData.attachments = newTicket.attachments;
+      }
+
       const res = await fetch('/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTicket)
+        body: JSON.stringify(ticketData)
       });
+
       if (res.ok) {
         fetchTickets();
         fetchStats();
@@ -218,8 +360,13 @@ const App: React.FC = () => {
           description: '',
           priority: 'Média',
           status: 'Aberto',
-          asset_id: ''
+          asset_id: '',
+          attachments: []
         });
+        showToast('Chamado aberto com sucesso!', 'success');
+      } else {
+        const errorData = await res.json();
+        showToast(errorData.error || 'Erro ao salvar chamado');
       }
     } catch (error) {
       showToast('Erro ao salvar chamado');
@@ -325,7 +472,9 @@ const App: React.FC = () => {
       const data = await res.json();
 
       if (res.ok && data.success) {
+        setUser(data.user);
         setIsAuthenticated(true);
+        setActiveTab(selectedPortal === 'Gestão' ? 'Dashboard' : 'Início');
         showToast('Login realizado com sucesso!', 'success');
       } else {
         showToast(data.error || 'Usuário ou senha incorretos');
@@ -379,6 +528,28 @@ const App: React.FC = () => {
             </div>
           </motion.button>
         </div>
+        
+        {/* Toast Notification for Selection Screen */}
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: 20, x: '-50%' }}
+              className={`fixed bottom-8 left-1/2 z-[100] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${
+                toast.type === 'error' 
+                  ? 'bg-red-50 border-red-100 text-red-600' 
+                  : 'bg-emerald-50 border-emerald-100 text-emerald-600'
+              }`}
+            >
+              {toast.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+              <span className="text-sm font-bold">{toast.message}</span>
+              <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100">
+                <X size={16} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -413,7 +584,7 @@ const App: React.FC = () => {
                 required
                 value={loginData.email}
                 onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                placeholder="seu@email.com"
+                placeholder="email@lubpar.com.br"
                 className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-zinc-900 focus:ring-0 rounded-xl outline-none transition-all text-sm"
               />
             </div>
@@ -452,41 +623,114 @@ const App: React.FC = () => {
             </p>
           </div>
         </motion.div>
+
+        {/* Toast Notification for Login Screen */}
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: 20, x: '-50%' }}
+              className={`fixed bottom-8 left-1/2 z-[100] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${
+                toast.type === 'error' 
+                  ? 'bg-red-50 border-red-100 text-red-600' 
+                  : 'bg-emerald-50 border-emerald-100 text-emerald-600'
+              }`}
+            >
+              {toast.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+              <span className="text-sm font-bold">{toast.message}</span>
+              <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100">
+                <X size={16} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] flex font-sans text-zinc-900">
+    <div className="min-h-screen bg-[#F8F9FA] flex font-sans text-zinc-900 relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-zinc-900/40 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-zinc-200 flex flex-col sticky top-0 h-screen">
-        <div className="p-6 border-b border-zinc-100">
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-zinc-200 flex flex-col h-screen transition-transform duration-300 transform
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:relative lg:translate-x-0
+      `}>
+        <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center">
-              <Package className="text-white w-6 h-6" />
+              {selectedPortal === 'Gestão' ? <Settings className="text-white w-6 h-6" /> : <Package className="text-white w-6 h-6" />}
             </div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Lubpar</h1>
-              <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Gestão de TI</p>
+              <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
+                {selectedPortal === 'Gestão' ? 'Gestão de TI' : 'Portal Lubpar'}
+              </p>
             </div>
           </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-zinc-400 hover:text-zinc-900">
+            <X size={20} />
+          </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {menuItems.map((item) => (
-            <button
-              key={item.name}
-              onClick={() => setActiveTab(item.name)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-                activeTab === item.name
-                  ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-200'
-                  : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
-              }`}
-            >
-              <item.icon size={20} />
-              {item.name}
-            </button>
-          ))}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {selectedPortal === 'Gestão' ? (
+            menuItems.map((item) => (
+              <button
+                key={item.name}
+                onClick={() => {
+                  setActiveTab(item.name);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  activeTab === item.name
+                    ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-200'
+                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                }`}
+              >
+                <item.icon size={20} />
+                {item.name}
+              </button>
+            ))
+          ) : (
+            [
+              { name: 'Início', icon: LayoutDashboard },
+              { name: 'Chamados', icon: Ticket },
+              { name: 'Meus Pedidos', icon: Truck },
+              { name: 'Financeiro', icon: CreditCard },
+              { name: 'Frota', icon: Car },
+            ].map((item) => (
+              <button
+                key={item.name}
+                onClick={() => {
+                  setActiveTab(item.name);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  activeTab === item.name
+                    ? 'bg-zinc-900 text-white shadow-lg shadow-zinc-200'
+                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                }`}
+              >
+                <item.icon size={20} />
+                {item.name}
+              </button>
+            ))
+          )}
         </nav>
 
         <div className="p-4 border-t border-zinc-100">
@@ -504,28 +748,161 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <header className="bg-white/80 backdrop-blur-md border-b border-zinc-200 sticky top-0 z-10 px-8 py-4">
+      <main className="flex-1 overflow-x-hidden">
+        <header className="bg-white/80 backdrop-blur-md border-b border-zinc-200 sticky top-0 z-30 px-4 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-zinc-900">{activeTab}</h2>
             <div className="flex items-center gap-4">
-              <div className="relative">
+              <button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden p-2 hover:bg-zinc-100 rounded-lg transition-colors"
+              >
+                <Menu size={24} />
+              </button>
+              <h2 className="text-lg lg:text-xl font-bold text-zinc-900">{activeTab}</h2>
+            </div>
+            <div className="flex items-center gap-2 lg:gap-4">
+              <div className="relative hidden md:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
                 <input
                   type="text"
                   placeholder="Pesquisar..."
-                  className="pl-10 pr-4 py-2 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl text-sm w-64 transition-all outline-none"
+                  className="pl-10 pr-4 py-2 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl text-sm w-48 lg:w-64 transition-all outline-none"
                 />
               </div>
-              <div className="w-10 h-10 rounded-full bg-zinc-200 border-2 border-white shadow-sm overflow-hidden">
+              <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-zinc-200 border-2 border-white shadow-sm overflow-hidden shrink-0">
                 <img src="https://picsum.photos/seed/user/100/100" alt="Avatar" referrerPolicy="no-referrer" />
               </div>
             </div>
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto">
-          {activeTab === 'Dashboard' ? (
+        <div className="p-4 lg:p-8 max-w-7xl mx-auto">
+          {selectedPortal === 'Portal Lubpar' && activeTab === 'Início' ? (
+            <div className="space-y-8">
+              <header className="mb-8">
+                <h3 className="text-2xl font-bold text-zinc-900">Olá, Bem-vindo ao Portal Lubpar</h3>
+                <p className="text-zinc-500">Selecione uma das opções abaixo para prosseguir.</p>
+              </header>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[
+                  { title: 'Abrir Chamado', desc: 'Solicite suporte técnico ou manutenção.', icon: Ticket, color: 'bg-zinc-900', action: () => setIsTicketModalOpen(true) },
+                  { title: 'Tracking de pedidos', desc: 'Acompanhe o status de suas entregas.', icon: Truck, color: 'bg-blue-600', action: () => setActiveTab('Meus Pedidos') },
+                  { title: '2ª de boleto', desc: 'Emita a segunda via de seus boletos.', icon: FileText, color: 'bg-emerald-600', action: () => setActiveTab('Financeiro') },
+                  { title: 'Checklist de Frota', desc: 'Realize a conferência de veículos.', icon: ClipboardCheck, color: 'bg-orange-600', action: () => setActiveTab('Frota') },
+                ].map((item, i) => (
+                  <motion.button
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    key={item.title}
+                    onClick={item.action}
+                    className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all text-left group"
+                  >
+                    <div className={`${item.color} w-14 h-14 rounded-2xl flex items-center justify-center text-white mb-6 shadow-lg group-hover:rotate-6 transition-transform`}>
+                      <item.icon size={28} />
+                    </div>
+                    <h4 className="text-lg font-bold text-zinc-900 mb-2">{item.title}</h4>
+                    <p className="text-sm text-zinc-500 leading-relaxed">{item.desc}</p>
+                    <div className="mt-6 flex items-center gap-2 text-zinc-900 font-bold text-xs uppercase tracking-wider">
+                      Acessar <ChevronRight size={16} />
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+
+              {/* Recent Tickets for Portal Lubpar */}
+              <div className="mt-12">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-zinc-900">Meus Chamados Recentes</h3>
+                  <button 
+                    onClick={() => setActiveTab('Chamados')} 
+                    className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Ver todos
+                  </button>
+                </div>
+                
+                <div className="bg-white rounded-[32px] border border-zinc-200 overflow-hidden shadow-sm">
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200">
+                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Título</th>
+                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Data</th>
+                          <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 5).map((ticket) => (
+                          <tr key={ticket.id} className="hover:bg-zinc-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-medium text-zinc-900">{ticket.title}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                ticket.status === 'Aberto' ? 'bg-orange-100 text-orange-600' :
+                                ticket.status === 'Em análise' ? 'bg-blue-100 text-blue-600' :
+                                ticket.status === 'Encerrado' ? 'bg-emerald-100 text-emerald-600' :
+                                'bg-zinc-100 text-zinc-600'
+                              }`}>
+                                {ticket.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-zinc-500">
+                              {new Date(ticket.created_at).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-6 py-4">
+                              <button 
+                                onClick={() => setViewingTicket(ticket)}
+                                className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-900 transition-all"
+                              >
+                                <MessageSquare size={18} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card View */}
+                  <div className="md:hidden divide-y divide-zinc-100">
+                    {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 5).map((ticket) => (
+                      <div key={ticket.id} className="p-6 space-y-4 hover:bg-zinc-50 transition-colors" onClick={() => setViewingTicket(ticket)}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="font-bold text-zinc-900 leading-tight">{ticket.title}</div>
+                          <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            ticket.status === 'Aberto' ? 'bg-orange-100 text-orange-600' :
+                            ticket.status === 'Em análise' ? 'bg-blue-100 text-blue-600' :
+                            ticket.status === 'Encerrado' ? 'bg-emerald-100 text-emerald-600' :
+                            'bg-zinc-100 text-zinc-600'
+                          }`}>
+                            {ticket.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+                          <span>{new Date(ticket.created_at).toLocaleDateString('pt-BR')}</span>
+                          <div className="flex items-center gap-1 text-blue-600">
+                            VER DETALHES <ChevronRight size={12} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length === 0 && (
+                    <div className="px-6 py-12 text-center text-zinc-500 italic text-sm">
+                      Nenhum chamado encontrado.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          ) : activeTab === 'Dashboard' ? (
             <div className="space-y-8">
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -575,14 +952,14 @@ const App: React.FC = () => {
             <div className="space-y-8">
               {/* Gestão de Categorias */}
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-bold">Gestão de Categorias</h3>
                     <p className="text-sm text-zinc-500">Crie categorias e defina colunas personalizadas.</p>
                   </div>
                   <button 
                     onClick={() => openCategoryModal()}
-                    className="bg-zinc-100 text-zinc-900 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-zinc-200 transition-colors"
+                    className="bg-zinc-100 text-zinc-900 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-zinc-200 transition-colors w-full sm:w-auto justify-center"
                   >
                     <Plus size={18} />
                     Nova Categoria
@@ -639,7 +1016,7 @@ const App: React.FC = () => {
 
               {/* Lista de Ativos */}
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-bold">
                       {selectedCategory ? `Ativos: ${selectedCategory}` : 'Inventário de Ativos'}
@@ -648,7 +1025,7 @@ const App: React.FC = () => {
                   </div>
                   <button 
                     onClick={() => setIsAssetModalOpen(true)}
-                    className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-zinc-800 transition-colors shadow-lg shadow-zinc-200"
+                    className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-zinc-800 transition-colors shadow-lg shadow-zinc-200 w-full sm:w-auto justify-center"
                   >
                     <Plus size={18} />
                     Cadastrar Ativo
@@ -656,9 +1033,10 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-200">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[600px]">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200">
                         {!selectedCategory ? (
                           <>
                             <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Ativo</th>
@@ -733,121 +1111,212 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : activeTab === 'Chamados' ? (
-            <div className="space-y-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold">Quadro de Chamados</h3>
-                  <p className="text-sm text-zinc-500">Gerencie as solicitações de suporte e manutenção.</p>
+          </div>
+        ) : activeTab === 'Chamados' ? (
+          <div className="space-y-8">
+            {/* Header Card */}
+            <div className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+              <div>
+                <h3 className="text-2xl font-bold text-zinc-900">
+                  {selectedPortal === 'Gestão' ? 'Gestão de Chamados' : 'Central de Chamados'}
+                </h3>
+                <p className="text-zinc-500 mt-1">
+                  {selectedPortal === 'Gestão' 
+                    ? 'Gerencie e acompanhe todos os chamados abertos pelos usuários.' 
+                    : 'Como podemos ajudar você hoje? Abra uma solicitação para nossa equipe.'}
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsTicketModalOpen(true)}
+                className="bg-[#1e3a5f] text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-[#152a45] transition-all shadow-lg shadow-blue-900/10 whitespace-nowrap"
+              >
+                <Plus size={20} />
+                Novo Chamado
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Main Content - Recent Tickets */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-lg font-bold text-zinc-900">Meus Chamados Recentes</h4>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Pesquisar chamado..."
+                      className="pl-10 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm w-full sm:w-64 outline-none focus:border-zinc-400 transition-all"
+                    />
+                  </div>
                 </div>
-                <button 
-                  onClick={() => setIsTicketModalOpen(true)}
-                  className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-zinc-800 transition-colors shadow-lg shadow-zinc-200"
-                >
-                  <Plus size={18} />
-                  Novo Chamado
-                </button>
+
+                <div className="bg-white rounded-[32px] border border-zinc-200 shadow-sm overflow-hidden">
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-zinc-100">
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">ID</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Assunto</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Prioridade</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-50">
+                        {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length > 0 ? (
+                          tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 20).map((ticket) => (
+                            <tr key={ticket.id} className="hover:bg-zinc-50/50 transition-colors">
+                              <td className="px-6 py-4 text-sm font-medium text-zinc-500">CH-{ticket.id.toString().padStart(4, '0')}</td>
+                              <td className="px-6 py-4">
+                                <div className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                                  {ticket.title}
+                                  {ticket.attachments && ticket.attachments.length > 0 && (
+                                    <ImageIcon size={12} className="text-blue-500" title={`${ticket.attachments.length} anexo(s)`} />
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-zinc-400 mt-0.5">
+                                  {ticket.assets?.name || 'Suporte TI'} • {new Date(ticket.created_at).toLocaleDateString('pt-BR')}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
+                                  ticket.priority === 'Alta' ? 'bg-red-50 text-red-500' :
+                                  ticket.priority === 'Média' ? 'bg-zinc-100 text-zinc-500' : 'bg-blue-50 text-blue-500'
+                                }`}>
+                                  {ticket.priority}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold w-fit ${
+                                  ticket.status === 'Aberto' ? 'bg-orange-50 text-orange-600' :
+                                  ticket.status === 'Em análise' ? 'bg-blue-50 text-blue-600' :
+                                  ticket.status === 'Encerrado' ? 'bg-emerald-50 text-emerald-600' :
+                                  'bg-zinc-100 text-zinc-600'
+                                }`}>
+                                  {ticket.status === 'Aberto' ? <Clock size={12} /> : 
+                                   ticket.status === 'Em análise' ? <Clock size={12} /> : <CheckCircle2 size={12} />}
+                                  {ticket.status}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-center">
+                                <button 
+                                  onClick={() => setViewingTicket(ticket)}
+                                  className="text-zinc-300 hover:text-zinc-600 transition-colors"
+                                >
+                                  <MessageSquare size={18} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-12 text-center text-zinc-400 italic text-sm">
+                              Nenhum chamado recente encontrado.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card View */}
+                  <div className="md:hidden divide-y divide-zinc-50">
+                    {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length > 0 ? (
+                      tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 20).map((ticket) => (
+                        <div key={ticket.id} className="p-6 space-y-4" onClick={() => setViewingTicket(ticket)}>
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">CH-{ticket.id.toString().padStart(4, '0')}</div>
+                              <div className="font-bold text-zinc-900 leading-tight">{ticket.title}</div>
+                            </div>
+                            <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              ticket.status === 'Aberto' ? 'bg-orange-50 text-orange-600' :
+                              ticket.status === 'Em análise' ? 'bg-blue-50 text-blue-600' :
+                              ticket.status === 'Encerrado' ? 'bg-emerald-50 text-emerald-600' :
+                              'bg-zinc-100 text-zinc-600'
+                            }`}>
+                              {ticket.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+                              {new Date(ticket.created_at).toLocaleDateString('pt-BR')}
+                            </div>
+                            <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              ticket.priority === 'Alta' ? 'bg-red-50 text-red-500' :
+                              ticket.priority === 'Média' ? 'bg-zinc-100 text-zinc-500' : 'bg-blue-50 text-blue-500'
+                            }`}>
+                              {ticket.priority}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-6 py-12 text-center text-zinc-400 italic text-sm">
+                        Nenhum chamado recente encontrado.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {['Aberto', 'Em Andamento', 'Concluído'].map((status) => (
-                  <div key={status} className="space-y-4">
-                    <div className="flex items-center justify-between px-2">
-                      <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          status === 'Aberto' ? 'bg-orange-500' : 
-                          status === 'Em Andamento' ? 'bg-blue-500' : 'bg-emerald-500'
-                        }`} />
-                        {status}
-                        <span className="bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full text-[10px]">
-                          {tickets.filter(t => t.status === status).length}
-                        </span>
-                      </h4>
+              {/* Sidebar */}
+              <div className="space-y-6">
+                {/* SLA Card */}
+                <div className="bg-[#1e3a5f] p-8 rounded-[32px] text-white shadow-xl shadow-blue-900/20">
+                  <h4 className="text-lg font-bold mb-2">SLA de Atendimento</h4>
+                  <p className="text-blue-200 text-xs leading-relaxed mb-6">
+                    Nossa equipe trabalha para responder todas as solicitações o mais rápido possível.
+                  </p>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
+                        <span>Crítico</span>
+                        <span>2 horas</span>
+                      </div>
+                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-500 w-full" />
+                      </div>
                     </div>
-
-                    <div className="space-y-3">
-                      {tickets
-                        .filter(t => t.status === status)
-                        .map((ticket) => (
-                          <motion.div
-                            layout
-                            key={ticket.id}
-                            className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-all group"
-                          >
-                            <div className="flex items-start justify-between mb-3">
-                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase ${
-                                ticket.priority === 'Alta' ? 'bg-red-50 text-red-600' :
-                                ticket.priority === 'Média' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'
-                              }`}>
-                                {ticket.priority}
-                              </span>
-                              <div className="flex items-center gap-1">
-                                <button 
-                                  onClick={() => deleteTicket(ticket.id)}
-                                  className="p-1 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            </div>
-                            <h5 className="font-bold text-sm mb-1">{ticket.title}</h5>
-                            <p className="text-xs text-zinc-500 line-clamp-2 mb-2">{ticket.description}</p>
-                            
-                            {ticket.resolution && (
-                              <div className="mb-3 p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                                <p className="text-[10px] font-bold text-emerald-700 uppercase mb-1">Resolução:</p>
-                                <p className="text-[10px] text-emerald-600 italic line-clamp-2">{ticket.resolution}</p>
-                              </div>
-                            )}
-                            
-                            <div className="flex items-center justify-between pt-4 border-t border-zinc-50">
-                              <div className="flex items-center gap-2 text-[10px] font-medium text-zinc-400">
-                                <Package size={12} />
-                                {ticket.assets?.name || 'Sem ativo'}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                {status !== 'Aberto' && (
-                                  <button 
-                                    onClick={() => updateTicketStatus(ticket.id, 'Aberto')}
-                                    className="p-1.5 bg-zinc-50 text-zinc-400 rounded-lg hover:text-orange-500 transition-colors"
-                                    title="Mover para Aberto"
-                                  >
-                                    <Clock size={14} />
-                                  </button>
-                                )}
-                                {status !== 'Em Andamento' && (
-                                  <button 
-                                    onClick={() => updateTicketStatus(ticket.id, 'Em Andamento')}
-                                    className="p-1.5 bg-zinc-50 text-zinc-400 rounded-lg hover:text-blue-500 transition-colors"
-                                    title="Mover para Em Andamento"
-                                  >
-                                    <Clock size={14} />
-                                  </button>
-                                )}
-                                {status !== 'Concluído' && (
-                                  <button 
-                                    onClick={() => updateTicketStatus(ticket.id, 'Concluído')}
-                                    className="p-1.5 bg-zinc-50 text-zinc-400 rounded-lg hover:text-emerald-500 transition-colors"
-                                    title="Mover para Concluído"
-                                  >
-                                    <CheckCircle2 size={14} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))}
-                      
-                      {tickets.filter(t => t.status === status).length === 0 && (
-                        <div className="py-8 text-center border-2 border-dashed border-zinc-100 rounded-2xl">
-                          <p className="text-[10px] font-medium text-zinc-300 uppercase tracking-widest">Vazio</p>
-                        </div>
-                      )}
+                    <div>
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider mb-2">
+                        <span>Média / Baixa</span>
+                        <span>24 horas</span>
+                      </div>
+                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-400 w-1/3" />
+                      </div>
                     </div>
                   </div>
-                ))}
+                </div>
+
+                {/* FAQ Card */}
+                <div className="bg-white p-8 rounded-[32px] border border-zinc-200 shadow-sm">
+                  <h4 className="text-lg font-bold text-zinc-900 mb-6 flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-600">
+                      <AlertCircle size={14} />
+                    </div>
+                    Dúvidas Frequentes
+                  </h4>
+                  
+                  <div className="space-y-4">
+                    {[
+                      'Como resetar minha senha do SAP?',
+                      'Onde solicitar novos EPIs?',
+                      'Qual o prazo para reembolso de viagens?'
+                    ].map((q) => (
+                      <button key={q} className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-zinc-50 transition-all text-left group">
+                        <span className="text-sm font-medium text-zinc-600 group-hover:text-zinc-900 transition-colors">{q}</span>
+                        <ChevronRight size={16} className="text-zinc-300 group-hover:text-zinc-900 transition-all" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
               <AlertCircle size={48} className="mb-4 opacity-20" />
@@ -872,7 +1341,7 @@ const App: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden m-4"
               >
                 <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="text-xl font-bold">Nova Categoria</h3>
@@ -880,8 +1349,8 @@ const App: React.FC = () => {
                     <X size={24} />
                   </button>
                 </div>
-                <div className="p-6 space-y-6 max-h-[70vh] overflow-auto">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
+                  <div className="grid grid-cols-1 gap-6">
                     <div>
                       <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nome da Categoria</label>
                       <input 
@@ -894,12 +1363,12 @@ const App: React.FC = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Ícone</label>
-                      <div className="grid grid-cols-7 gap-2">
+                      <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
                         {ICON_OPTIONS.map((opt) => (
                           <button
                             key={opt.name}
                             onClick={() => setNewCategoryIcon(opt.name)}
-                            className={`p-2 rounded-lg transition-all ${
+                            className={`p-2 rounded-lg transition-all flex items-center justify-center ${
                               newCategoryIcon === opt.name 
                               ? 'bg-zinc-900 text-white shadow-md' 
                               : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
@@ -1001,7 +1470,7 @@ const App: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden m-4"
               >
                 <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="text-xl font-bold">Cadastrar Novo Ativo</h3>
@@ -1009,9 +1478,9 @@ const App: React.FC = () => {
                     <X size={24} />
                   </button>
                 </div>
-                <div className="p-6 space-y-6 max-h-[70vh] overflow-auto">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
+                <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
                       <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nome do Ativo</label>
                       <input 
                         type="text" 
@@ -1052,7 +1521,7 @@ const App: React.FC = () => {
                   {newAsset.type && (
                     <div className="space-y-4 pt-4 border-t border-zinc-100">
                       <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Campos da Categoria</h4>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {categoryConfigs.find(c => c.category === newAsset.type)?.columns.filter((col: any) => !col.isSystem).map((col: any) => (
                           <div key={col.id}>
                             <label className="block text-xs font-bold text-zinc-700 mb-2 uppercase tracking-wider">{col.label}</label>
@@ -1104,7 +1573,7 @@ const App: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden m-4"
               >
                 <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="text-xl font-bold">Novo Chamado</h3>
@@ -1112,7 +1581,7 @@ const App: React.FC = () => {
                     <X size={24} />
                   </button>
                 </div>
-                <div className="p-6 space-y-6 max-h-[70vh] overflow-auto">
+                <div className="p-6 space-y-6 max-h-[80vh] overflow-auto">
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Título do Problema</label>
@@ -1126,15 +1595,42 @@ const App: React.FC = () => {
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Descrição Detalhada</label>
-                      <textarea 
-                        rows={3}
-                        value={newTicket.description}
-                        onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
-                        placeholder="Descreva o que está acontecendo..."
-                        className="w-full px-4 py-3 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl outline-none transition-all resize-none"
-                      />
+                      <div className="relative">
+                        <textarea 
+                          rows={3}
+                          value={newTicket.description}
+                          onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
+                          onPaste={handlePaste}
+                          placeholder="Descreva o que está acontecendo... (Você pode colar prints aqui)"
+                          className="w-full px-4 py-3 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl outline-none transition-all resize-none"
+                        />
+                        <div className="absolute right-3 bottom-3 text-zinc-400">
+                          <ImageIcon size={18} />
+                        </div>
+                      </div>
+                      
+                      {newTicket.attachments && newTicket.attachments.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          {newTicket.attachments.map((img: string, idx: number) => (
+                            <div key={idx} className="relative group w-20 h-20">
+                              <img 
+                                src={img} 
+                                alt={`Anexo ${idx + 1}`} 
+                                className="w-full h-full object-cover rounded-lg border border-zinc-200"
+                                referrerPolicy="no-referrer"
+                              />
+                              <button 
+                                onClick={() => removeAttachment(idx)}
+                                className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-lg"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Prioridade</label>
                         <select 
@@ -1200,7 +1696,7 @@ const App: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden m-4"
               >
                 <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
                   <h3 className="text-xl font-bold">Resolver Chamado</h3>
@@ -1248,6 +1744,160 @@ const App: React.FC = () => {
                   >
                     Finalizar Chamado
                   </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* View Ticket Modal */}
+        <AnimatePresence>
+          {viewingTicket && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-zinc-900/40 backdrop-blur-sm">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-[#F8F9FA] w-full max-w-4xl h-[98vh] sm:h-[90vh] rounded-2xl sm:rounded-[32px] shadow-2xl overflow-hidden flex flex-col"
+              >
+                {/* Header */}
+                <div className="p-4 sm:p-6 bg-white border-b border-zinc-100">
+                  <div className="flex items-center justify-between mb-4 sm:mb-6">
+                    <h3 className="text-lg sm:text-2xl font-bold text-zinc-900 truncate pr-4">
+                      #{viewingTicket.id.toString().padStart(4, '0')} - {viewingTicket.title}
+                    </h3>
+                    <button onClick={() => setViewingTicket(null)} className="text-zinc-400 hover:text-zinc-900 shrink-0">
+                      <X size={24} />
+                    </button>
+                  </div>
+
+                  {/* Stepper */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+                    {[
+                      { label: 'Aberto', color: 'bg-emerald-500' },
+                      { label: 'Em análise', color: 'bg-emerald-500' },
+                      { label: 'Pendente cliente', color: 'bg-orange-400' },
+                      { label: 'Validação cliente', color: 'bg-zinc-300' },
+                      { label: 'Encerrado', color: 'bg-zinc-300' }
+                    ].map((step, idx) => {
+                      const statuses = ['Aberto', 'Em análise', 'Pendente cliente', 'Validação cliente', 'Encerrado'];
+                      const currentIdx = statuses.indexOf(viewingTicket.status);
+                      const isPast = currentIdx >= idx;
+                      
+                      return (
+                        <div key={idx} className="flex-1 min-w-[120px]">
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isPast ? 'text-emerald-500' : 'text-zinc-300'}`}>
+                              <CheckCircle2 size={14} />
+                            </div>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${isPast ? 'text-zinc-900' : 'text-zinc-400'}`}>
+                              {step.label}
+                            </span>
+                          </div>
+                          <div className={`h-1.5 rounded-full ${isPast ? step.color : 'bg-zinc-200'}`} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Chat Area */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-[#F8F9FA]">
+                  {/* Original Description as first message */}
+                  <div className="flex justify-start">
+                    <div className="max-w-[95%] sm:max-w-[80%] bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-zinc-100 relative">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-xs font-bold text-zinc-600 shrink-0">
+                          {user?.name?.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-bold text-zinc-900">{user?.name}</span>
+                          <span className="text-zinc-400 ml-2">abriu o chamado:</span>
+                        </div>
+                      </div>
+                      <p className="text-sm sm:text-base text-zinc-600 leading-relaxed whitespace-pre-wrap">{viewingTicket.description}</p>
+                      
+                      {viewingTicket.attachments && viewingTicket.attachments.length > 0 && (
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          {viewingTicket.attachments.map((img: string, idx: number) => (
+                            <a key={idx} href={img} target="_blank" rel="noopener noreferrer" className="rounded-xl overflow-hidden border border-zinc-100">
+                              <img src={img} alt="Anexo" className="w-full h-24 sm:h-32 object-cover" referrerPolicy="no-referrer" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="text-[10px] text-zinc-400 mt-4">
+                        {new Date(viewingTicket.created_at).toLocaleString('pt-BR')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  {ticketMessages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.is_admin ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[95%] sm:max-w-[80%] rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border relative ${
+                        msg.is_admin ? 'bg-[#FFF5EB] border-orange-100' : 'bg-[#EBF5FF] border-blue-100'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-4">
+                          {!msg.is_admin && (
+                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
+                              {msg.user_name?.substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="text-sm">
+                            <span className="font-bold text-zinc-900">{msg.user_name}</span>
+                            <span className="text-zinc-400 ml-2">deixou um comentário:</span>
+                          </div>
+                          {msg.is_admin && (
+                            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-bold text-orange-600 ml-2 shrink-0">
+                              {msg.user_name?.substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm sm:text-base text-zinc-700 leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                        <div className="text-[10px] text-zinc-400 mt-4">
+                          {new Date(msg.created_at).toLocaleString('pt-BR')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Area */}
+                <div className="p-4 sm:p-6 bg-white border-t border-zinc-100">
+                  <div className="flex items-center sm:items-end gap-2 sm:gap-4">
+                    <button className="p-2 sm:p-3 text-blue-500 hover:bg-blue-50 rounded-full transition-colors border border-blue-100 shrink-0">
+                      <Paperclip size={20} />
+                    </button>
+                    <div className="flex-1 relative">
+                      <textarea 
+                        rows={1}
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder="Escreva uma mensagem"
+                        className="w-full px-4 sm:px-6 py-2 sm:py-3 bg-zinc-50 border border-zinc-200 focus:bg-white focus:border-blue-300 rounded-2xl sm:rounded-3xl outline-none transition-all resize-none max-h-32 text-sm sm:text-base"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendTicketMessage();
+                          }
+                        }}
+                      />
+                    </div>
+                    <button 
+                      onClick={sendTicketMessage}
+                      disabled={!newMessage.trim() || isSendingMessage}
+                      className="p-2 sm:px-8 sm:py-3 bg-zinc-200 text-zinc-600 rounded-xl font-bold hover:bg-zinc-300 transition-all flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+                    >
+                      <span className="hidden sm:inline">{isSendingMessage ? '...' : 'ENVIAR'}</span>
+                      <Send size={18} />
+                    </button>
+                  </div>
+                  <div className="mt-3 sm:mt-4 text-[10px] text-zinc-400">
+                    Observação: Para enviar anexos superiores a 20mb, <a href="#" className="text-blue-500 underline">clique aqui!</a>
+                  </div>
                 </div>
               </motion.div>
             </div>
