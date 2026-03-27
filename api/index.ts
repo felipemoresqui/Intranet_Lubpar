@@ -113,7 +113,7 @@ app.get('/api/tickets', async (req, res) => {
     const { user_id } = req.query;
     const supabase = getSupabase();
     
-    // Removendo o join com assets que está causando erro de relacionamento
+    // Tenta buscar todas as colunas primeiro
     let query = supabase
       .from('tickets')
       .select('*')
@@ -128,7 +128,31 @@ app.get('/api/tickets', async (req, res) => {
       }
     }
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+    
+    // Se falhar (provavelmente por colunas novas que não existem no DB real),
+    // tenta um fallback com as colunas básicas originais
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('not found'))) {
+      console.warn('Supabase tickets full select failed, trying fallback:', error.message);
+      let fallbackQuery = supabase
+        .from('tickets')
+        .select('id, title, description, status, priority, user_id, created_at')
+        .order('created_at', { ascending: false });
+
+      if (user_id && user_id !== 'undefined') {
+        const userIdNum = Number(user_id);
+        if (!isNaN(userIdNum)) {
+          fallbackQuery = fallbackQuery.eq('user_id', userIdNum);
+        } else {
+          fallbackQuery = fallbackQuery.eq('user_id', user_id);
+        }
+      }
+      
+      const fallbackResult = await fallbackQuery;
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+
     if (error) {
       console.error('Supabase tickets error:', JSON.stringify(error, null, 2));
       throw error;
@@ -146,10 +170,41 @@ app.post('/api/tickets', async (req, res) => {
   console.log('POST /api/tickets body:', req.body);
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    // Só inclui o user_id se o usuário estiver logado
+    if (req.body.user_id) {
+      try {
+        // Busca o nome do usuário para denormalizar
+        const { data: userData, error: userError } = await supabase
+          .from('portal_users')
+          .select('name')
+          .eq('id', req.body.user_id)
+          .single();
+        
+        if (userData && !userError) {
+          req.body.user_name = userData.name;
+        }
+      } catch (e) {
+        console.warn('Failed to fetch user name for denormalization:', e);
+      }
+    }
+
+    let { data, error } = await supabase
       .from('tickets')
       .insert([req.body])
       .select();
+      
+    // Se falhar por coluna não existente, tenta remover as colunas novas
+    if (error && (error.code === '42703' || error.message?.includes('column'))) {
+      console.warn('Insert ticket failed due to missing columns, trying fallback:', error.message);
+      const { user_name, responsible_id, responsible_name, resolution, attachments, ...fallbackBody } = req.body;
+      const fallbackResult = await supabase
+        .from('tickets')
+        .insert([fallbackBody])
+        .select();
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+
     if (error) {
       console.error('Insert ticket error:', error);
       throw error;
@@ -163,11 +218,25 @@ app.post('/api/tickets', async (req, res) => {
 app.patch('/api/tickets/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('tickets')
       .update(req.body)
       .eq('id', req.params.id)
       .select();
+
+    // Se falhar por coluna não existente, tenta remover as colunas novas
+    if (error && (error.code === '42703' || error.message?.includes('column'))) {
+      console.warn('Update ticket failed due to missing columns, trying fallback:', error.message);
+      const { user_name, responsible_id, responsible_name, resolution, attachments, ...fallbackBody } = req.body;
+      const fallbackResult = await supabase
+        .from('tickets')
+        .update(fallbackBody)
+        .eq('id', req.params.id)
+        .select();
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
+
     if (error) throw error;
     res.json(data?.[0]);
   } catch (error) {
@@ -348,6 +417,33 @@ app.delete('/api/inventory/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    
+    const { data: portalUsers, error: portalError } = await supabase
+      .from('portal_users')
+      .select('id, name, email, created_at');
+      
+    const { data: gestaoUsers, error: gestaoError } = await supabase
+      .from('gestao_users')
+      .select('id, name, email, created_at');
+
+    if (portalError) throw portalError;
+    if (gestaoError) throw gestaoError;
+
+    const allUsers = [
+      ...(portalUsers || []).map(u => ({ ...u, type: 'Cliente' })),
+      ...(gestaoUsers || []).map(u => ({ ...u, type: 'Gestão' }))
+    ];
+
+    res.json(allUsers);
+  } catch (error) {
+    console.error('Get users error:', error);
     res.status(500).json({ error: error.message });
   }
 });

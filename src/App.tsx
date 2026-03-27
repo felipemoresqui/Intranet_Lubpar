@@ -39,7 +39,9 @@ import {
   Send,
   Paperclip,
   User,
+  UserPlus,
   Globe,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -70,20 +72,52 @@ const ICON_OPTIONS = [
   { name: 'Tv', icon: Tv },
 ];
 
+const LubparIcon = ({ size = 24, light = false }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 100 100" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    {/* Base Sphere Outline */}
+    <circle cx="50" cy="50" r="46" stroke={light ? "white" : "#006699"} strokeWidth="1" strokeOpacity="0.1" />
+    
+    {/* Stylized Network Nodes (Approximating the image) */}
+    <circle cx="35" cy="45" r="7" fill={light ? "white" : "#006699"} />
+    <circle cx="50" cy="35" r="5" fill={light ? "white" : "#66AACC"} />
+    <circle cx="65" cy="45" r="5" fill={light ? "white" : "#66AACC"} />
+    <circle cx="60" cy="65" r="6" fill={light ? "white" : "#006699"} />
+    <circle cx="40" cy="70" r="5" fill={light ? "white" : "#66AACC"} />
+    <circle cx="25" cy="60" r="6" fill={light ? "white" : "#006699"} />
+    
+    {/* Connections */}
+    <path d="M35 45 Q42 40 50 35" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    <path d="M50 35 Q57 40 65 45" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    <path d="M65 45 Q62 55 60 65" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    <path d="M60 65 Q50 67 40 70" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    <path d="M40 70 Q32 65 25 60" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    <path d="M25 60 Q30 52 35 45" stroke={light ? "white" : "#006699"} strokeWidth="3" strokeLinecap="round" strokeOpacity="0.6" />
+    
+    {/* Inner connections */}
+    <path d="M35 45 L60 65" stroke={light ? "white" : "#006699"} strokeWidth="2" strokeOpacity="0.3" />
+    <path d="M50 35 L40 70" stroke={light ? "white" : "#006699"} strokeWidth="2" strokeOpacity="0.3" />
+  </svg>
+);
+
 const LubparLogo = ({ className = "", iconSize = 24, textSize = "text-xl", showText = true, light = false, suffix = "" }) => (
   <div className={`flex items-center gap-2 ${className}`}>
-    <div className={`relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden border ${light ? 'bg-white/10 border-white/20' : 'bg-white border-zinc-100'}`}>
-      <Globe size={iconSize} className={light ? 'text-white' : 'text-lubpar-blue'} />
-      <div className={`absolute inset-0 ${light ? 'bg-white/5' : 'bg-lubpar-light-blue/5'} pointer-events-none`} />
+    <div className="flex-none">
+      <LubparIcon size={iconSize} light={light} />
     </div>
     {showText && (
-      <div className={`font-black ${textSize} tracking-tighter flex items-baseline italic gap-2`}>
-        <div className="flex items-baseline">
-          <span className={light ? 'text-white' : 'text-lubpar-blue'}>LUB</span>
-          <span className={light ? 'text-white/80' : 'text-lubpar-gray'}>PAR</span>
-        </div>
+      <div className={`font-black ${textSize} tracking-tighter flex items-center italic`}>
+        <span className={light ? 'text-white' : 'text-lubpar-blue'}>LUB</span>
+        <span className={light ? 'text-white/80' : 'text-lubpar-gray'}>PAR</span>
         {suffix && (
-          <span className={light ? 'text-white/80' : 'text-lubpar-gray'}>{suffix.toUpperCase()}</span>
+          <span className={`ml-1 ${light ? 'text-white/80' : 'text-lubpar-gray'} text-[0.7em] whitespace-nowrap`}>
+            {suffix.toUpperCase()}
+          </span>
         )}
       </div>
     )}
@@ -158,6 +192,9 @@ const App: React.FC = () => {
   const [resolutionText, setResolutionText] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [ticketSearch, setTicketSearch] = useState('');
+  const [users, setUsers] = useState<any[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => {
     setToast({ message, type });
@@ -180,6 +217,12 @@ const App: React.FC = () => {
       }
     }
   }, [isAuthenticated, user?.id, selectedPortal]);
+
+  useEffect(() => {
+    if (activeTab === 'Configurações' && selectedPortal === 'Gestão') {
+      fetchUsers();
+    }
+  }, [activeTab, selectedPortal]);
 
   const openCategoryModal = (config?: any) => {
     if (config) {
@@ -226,7 +269,7 @@ const App: React.FC = () => {
   const fetchStats = async () => {
     try {
       let url = '/api/stats';
-      if (selectedPortal === 'Portal Lubpar' && user?.id) {
+      if (selectedPortal === 'Colaborador' && user?.id) {
         url += `?user_id=${user.id}`;
       }
       const res = await fetch(url);
@@ -360,6 +403,24 @@ const App: React.FC = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    setIsUsersLoading(true);
+    try {
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      } else {
+        showToast('Erro ao carregar usuários');
+      }
+    } catch (error) {
+      console.error('Erro ao buscar usuários:', error);
+      showToast('Erro ao carregar usuários');
+    } finally {
+      setIsUsersLoading(false);
+    }
+  };
+
   const saveInventory = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -402,7 +463,7 @@ const App: React.FC = () => {
   const fetchTickets = async () => {
     try {
       let url = '/api/tickets';
-      if (selectedPortal === 'Portal Lubpar' && user?.id) {
+      if (selectedPortal === 'Colaborador' && user?.id) {
         url += `?user_id=${user.id}`;
       }
       const res = await fetch(url);
@@ -475,7 +536,7 @@ const App: React.FC = () => {
     try {
       const body: any = { status };
       if (resolution) body.resolution = resolution;
-      if (status === 'Concluído' && !resolution && !selectedTicket?.resolution) {
+      if (status === 'Encerrado' && !resolution && !selectedTicket?.resolution) {
         const ticket = tickets.find(t => t.id === id);
         setSelectedTicket(ticket);
         setIsResolutionModalOpen(true);
@@ -496,6 +557,27 @@ const App: React.FC = () => {
       }
     } catch (error) {
       showToast('Erro ao atualizar status');
+    }
+  };
+
+  const assumeTicket = async (ticketId: string) => {
+    if (!user || selectedPortal !== 'Gestão') return;
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          responsible_id: user.id,
+          responsible_name: user.name,
+          status: 'Em Análise' // Quando assume, geralmente muda para Em Análise
+        })
+      });
+      if (res.ok) {
+        fetchTickets();
+        showToast('Você assumiu o chamado!', 'success');
+      }
+    } catch (error) {
+      showToast('Erro ao assumir chamado');
     }
   };
 
@@ -624,24 +706,32 @@ const App: React.FC = () => {
 
   if (!selectedPortal) {
     return (
-      <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4 font-sans">
-        <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-4 font-sans">
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-12"
+        >
+          <LubparLogo iconSize={48} textSize="text-4xl" />
+        </motion.div>
+
+        <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-2 gap-6">
           <motion.button
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            onClick={() => setSelectedPortal('Portal Lubpar')}
-            className="group relative bg-white p-12 rounded-[40px] shadow-xl shadow-zinc-200 border border-zinc-100 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
+            onClick={() => setSelectedPortal('Colaborador')}
+            className="group relative bg-white p-8 rounded-[32px] shadow-xl shadow-zinc-200 border border-zinc-100 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
           >
-            <div className="w-20 h-20 bg-lubpar-blue/5 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-zinc-100 group-hover:rotate-6 transition-transform">
-              <LubparLogo showText={false} iconSize={40} />
+            <div className="w-16 h-16 bg-lubpar-blue/5 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-zinc-100 group-hover:rotate-6 transition-transform">
+              <LubparLogo showText={false} iconSize={32} />
             </div>
-            <h2 className="text-3xl font-bold text-lubpar-blue mb-4">Portal Lubpar</h2>
-            <p className="text-zinc-500 leading-relaxed">Acesse o portal institucional, comunicados e recursos gerais da empresa.</p>
-            <div className="mt-8 flex items-center gap-2 text-lubpar-blue font-bold">
-              Acessar agora <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+            <h2 className="text-2xl font-bold text-lubpar-blue mb-3">Colaborador</h2>
+            <p className="text-zinc-500 text-sm leading-relaxed">Acesse o portal institucional, comunicados e recursos gerais da empresa.</p>
+            <div className="mt-6 flex items-center gap-2 text-lubpar-blue text-sm font-bold">
+              Acessar agora <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </div>
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-              <Globe size={120} className="text-lubpar-blue" />
+            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Globe size={100} className="text-lubpar-blue" />
             </div>
           </motion.button>
 
@@ -649,18 +739,18 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             onClick={() => setSelectedPortal('Gestão')}
-            className="group relative bg-lubpar-blue p-12 rounded-[40px] shadow-xl shadow-lubpar-blue/20 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
+            className="group relative bg-lubpar-blue p-8 rounded-[32px] shadow-xl shadow-lubpar-blue/20 text-left transition-all hover:scale-[1.02] hover:shadow-2xl active:scale-[0.98]"
           >
-            <div className="w-20 h-20 bg-white/10 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-white/5 group-hover:-rotate-6 transition-transform">
-              <LubparLogo showText={false} iconSize={40} light />
+            <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-white/5 group-hover:-rotate-6 transition-transform">
+              <LubparLogo showText={false} iconSize={32} light />
             </div>
-            <h2 className="text-3xl font-bold text-white mb-4">Gestão TI</h2>
-            <p className="text-white/60 leading-relaxed">Gerencie ativos, chamados técnicos e configurações de infraestrutura.</p>
-            <div className="mt-8 flex items-center gap-2 text-white font-bold">
-              Entrar no sistema <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+            <h2 className="text-2xl font-bold text-white mb-3">Gestão TI</h2>
+            <p className="text-white/60 text-sm leading-relaxed">Gerencie ativos, chamados técnicos e configurações de infraestrutura.</p>
+            <div className="mt-6 flex items-center gap-2 text-white text-sm font-bold">
+              Entrar no sistema <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </div>
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-              <Settings size={120} className="text-white" />
+            <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Settings size={100} className="text-white" />
             </div>
           </motion.button>
         </div>
@@ -788,6 +878,14 @@ const App: React.FC = () => {
     );
   }
 
+  const filteredTickets = tickets.filter(t => {
+    const matchesPortal = selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id);
+    const matchesSearch = t.title.toLowerCase().includes(ticketSearch.toLowerCase()) || 
+                         t.id.toString().includes(ticketSearch) ||
+                         (t.assets?.name || '').toLowerCase().includes(ticketSearch.toLowerCase());
+    return matchesPortal && matchesSearch;
+  });
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex font-sans text-zinc-900 relative">
       {/* Mobile Sidebar Overlay */}
@@ -809,8 +907,8 @@ const App: React.FC = () => {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:relative lg:translate-x-0
       `}>
-        <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
-          <LubparLogo textSize="text-lg" suffix={selectedPortal === 'Gestão' ? 'Gestão' : ''} />
+        <div className="p-4 border-b border-zinc-100 flex items-center justify-between">
+          <LubparLogo textSize="text-base" suffix={selectedPortal === 'Gestão' ? 'Gestão' : 'Colaborador'} />
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-zinc-400 hover:text-zinc-900">
             <X size={20} />
           </button>
@@ -947,10 +1045,10 @@ const App: React.FC = () => {
         </header>
 
         <div className="p-4 lg:p-8 max-w-7xl mx-auto">
-          {selectedPortal === 'Portal Lubpar' && activeTab === 'Início' ? (
+          {selectedPortal === 'Colaborador' && activeTab === 'Início' ? (
             <div className="space-y-8">
               <header className="mb-8">
-                <h3 className="text-2xl font-bold text-zinc-900">Olá, Bem-vindo ao Portal Lubpar</h3>
+                <h3 className="text-2xl font-bold text-zinc-900">Bem-vindo ao Portal Lubpar</h3>
                 <p className="text-zinc-500">Selecione uma das opções abaixo para prosseguir.</p>
               </header>
 
@@ -1375,12 +1473,16 @@ const App: React.FC = () => {
               {/* Main Content - Recent Tickets */}
               <div className="lg:col-span-2 space-y-6">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-lg font-bold text-zinc-900">Meus Chamados Recentes</h4>
+                  <h4 className="text-lg font-bold text-zinc-900">
+                    {selectedPortal === 'Gestão' ? 'Chamados Recentes' : 'Meus Chamados'}
+                  </h4>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
                     <input 
                       type="text" 
                       placeholder="Pesquisar chamado..."
+                      value={ticketSearch}
+                      onChange={(e) => setTicketSearch(e.target.value)}
                       className="pl-10 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm w-full sm:w-64 outline-none focus:border-zinc-400 transition-all"
                     />
                   </div>
@@ -1394,16 +1496,18 @@ const App: React.FC = () => {
                         <tr className="border-b border-zinc-100">
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">ID</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Assunto</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Usuário</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Responsável</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Prioridade</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Ação</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-50">
-                        {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length > 0 ? (
-                          tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 20).map((ticket) => (
+                        {filteredTickets.length > 0 ? (
+                          filteredTickets.slice(0, 20).map((ticket) => (
                             <tr key={ticket.id} className="hover:bg-zinc-50/50 transition-colors">
-                              <td className="px-6 py-4 text-sm font-medium text-zinc-500">CH-{ticket.id.toString().padStart(4, '0')}</td>
+                              <td className="px-6 py-4 text-sm font-medium text-zinc-500">{ticket.id}</td>
                               <td className="px-6 py-4">
                                 <div className="font-bold text-sm text-zinc-900 flex items-center gap-2">
                                   {ticket.title}
@@ -1414,6 +1518,21 @@ const App: React.FC = () => {
                                 <div className="text-[10px] text-zinc-400 mt-0.5">
                                   {ticket.assets?.name || 'Suporte TI'} • {new Date(ticket.created_at).toLocaleDateString('pt-BR')}
                                 </div>
+                              </td>
+                              <td className="px-6 py-4 text-sm text-zinc-600">
+                                {ticket.user_name || ticket.portal_users?.name || 'Usuário'}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-zinc-600">
+                                {(ticket.responsible_name || ticket.gestao_users?.name) ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <div className="w-5 h-5 rounded-full bg-zinc-100 flex items-center justify-center text-[8px] font-bold">
+                                      {(ticket.responsible_name || ticket.gestao_users?.name).charAt(0)}
+                                    </div>
+                                    {ticket.responsible_name || ticket.gestao_users?.name}
+                                  </span>
+                                ) : (
+                                  <span className="text-zinc-300 italic">Não assumido</span>
+                                )}
                               </td>
                               <td className="px-6 py-4">
                                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
@@ -1426,22 +1545,36 @@ const App: React.FC = () => {
                               <td className="px-6 py-4">
                                 <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold w-fit ${
                                   ticket.status === 'Aberto' ? 'bg-orange-50 text-orange-600' :
-                                  ticket.status === 'Em análise' ? 'bg-blue-50 text-blue-600' :
+                                  ticket.status === 'Em Análise' ? 'bg-blue-50 text-blue-600' :
+                                  ticket.status === 'Validação Pendente' ? 'bg-purple-50 text-purple-600' :
                                   ticket.status === 'Encerrado' ? 'bg-emerald-50 text-emerald-600' :
                                   'bg-zinc-100 text-zinc-600'
                                 }`}>
                                   {ticket.status === 'Aberto' ? <Clock size={12} /> : 
-                                   ticket.status === 'Em análise' ? <Clock size={12} /> : <CheckCircle2 size={12} />}
+                                   ticket.status === 'Em Análise' ? <Clock size={12} /> : 
+                                   ticket.status === 'Validação Pendente' ? <Clock size={12} /> :
+                                   <CheckCircle2 size={12} />}
                                   {ticket.status}
                                 </span>
                               </td>
                               <td className="px-6 py-4 text-center">
-                                <button 
-                                  onClick={() => setViewingTicket(ticket)}
-                                  className="text-zinc-300 hover:text-zinc-600 transition-colors"
-                                >
-                                  <MessageSquare size={18} />
-                                </button>
+                                <div className="flex items-center justify-center gap-2">
+                                  {!ticket.responsible_id && selectedPortal === 'Gestão' && (
+                                    <button 
+                                      onClick={() => assumeTicket(ticket.id)}
+                                      title="Assumir chamado"
+                                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                    >
+                                      <UserPlus size={18} />
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => setViewingTicket(ticket)}
+                                    className="p-1.5 text-zinc-300 hover:text-zinc-600 transition-colors"
+                                  >
+                                    <MessageSquare size={18} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -1458,22 +1591,31 @@ const App: React.FC = () => {
 
                   {/* Mobile Card View */}
                   <div className="md:hidden divide-y divide-zinc-50">
-                    {tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).length > 0 ? (
-                      tickets.filter(t => selectedPortal === 'Gestão' || String(t.user_id) === String(user?.id)).slice(0, 20).map((ticket) => (
+                    {filteredTickets.length > 0 ? (
+                      filteredTickets.slice(0, 20).map((ticket) => (
                         <div key={ticket.id} className="p-6 space-y-4" onClick={() => setViewingTicket(ticket)}>
                           <div className="flex items-start justify-between gap-4">
                             <div>
-                              <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">CH-{ticket.id.toString().padStart(4, '0')}</div>
+                              <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">{ticket.id}</div>
                               <div className="font-bold text-zinc-900 leading-tight">{ticket.title}</div>
                             </div>
                             <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                               ticket.status === 'Aberto' ? 'bg-orange-50 text-orange-600' :
-                              ticket.status === 'Em análise' ? 'bg-blue-50 text-blue-600' :
+                              ticket.status === 'Em Análise' ? 'bg-blue-50 text-blue-600' :
+                              ticket.status === 'Validação Pendente' ? 'bg-purple-50 text-purple-600' :
                               ticket.status === 'Encerrado' ? 'bg-emerald-50 text-emerald-600' :
                               'bg-zinc-100 text-zinc-600'
                             }`}>
                               {ticket.status}
                             </span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-[10px] text-zinc-500 flex items-center gap-1">
+                              <span className="font-bold uppercase tracking-widest">Usuário:</span> {ticket.user_name || ticket.portal_users?.name || 'Usuário'}
+                            </div>
+                            <div className="text-[10px] text-zinc-500 flex items-center gap-1">
+                              <span className="font-bold uppercase tracking-widest">Responsável:</span> {ticket.responsible_name || ticket.gestao_users?.name || 'Não assumido'}
+                            </div>
                           </div>
                           <div className="flex items-center justify-between">
                             <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
@@ -1555,13 +1697,97 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
-              <AlertCircle size={48} className="mb-4 opacity-20" />
-              <p className="text-lg font-medium">Funcionalidade em desenvolvimento</p>
-              <p className="text-sm">Estamos reconstruindo o sistema para você.</p>
+        ) : activeTab === 'Configurações' ? (
+          <div className="space-y-8">
+            <header>
+              <h3 className="text-2xl font-bold text-zinc-900">Configurações do Sistema</h3>
+              <p className="text-zinc-500">Gerencie usuários, permissões e configurações globais.</p>
+            </header>
+
+            <div className="bg-white rounded-[32px] border border-zinc-200 shadow-sm overflow-hidden">
+              <div className="p-8 border-b border-zinc-100 flex items-center justify-between">
+                <h4 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+                  <User size={20} className="text-lubpar-blue" />
+                  Usuários Cadastrados
+                </h4>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => fetchUsers()}
+                    disabled={isUsersLoading}
+                    className="p-2 rounded-xl hover:bg-zinc-50 text-zinc-400 hover:text-lubpar-blue transition-all disabled:opacity-50"
+                    title="Atualizar lista"
+                  >
+                    <RefreshCw size={18} className={isUsersLoading ? 'animate-spin' : ''} />
+                  </button>
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    {users.length} usuários ativos
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                      <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nome</th>
+                      <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">E-mail</th>
+                      <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Permissão</th>
+                      <th className="px-8 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {isUsersLoading ? (
+                      <tr>
+                        <td colSpan={4} className="px-8 py-12 text-center text-zinc-400 italic text-sm">
+                          Carregando usuários...
+                        </td>
+                      </tr>
+                    ) : users.length > 0 ? (
+                      users.map((u) => (
+                        <tr key={`${u.type}-${u.id}`} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-8 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-xs font-bold text-zinc-600">
+                                {u.name?.charAt(0) || '?'}
+                              </div>
+                              <span className="font-bold text-sm text-zinc-900">{u.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-4 text-sm text-zinc-600">{u.email}</td>
+                          <td className="px-8 py-4">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
+                              u.type === 'Gestão' ? 'bg-lubpar-blue/10 text-lubpar-blue' : 'bg-zinc-100 text-zinc-500'
+                            }`}>
+                              {u.type}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4 text-center">
+                            <button className="p-2 text-zinc-300 hover:text-zinc-600 transition-colors">
+                              <MoreVertical size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="px-8 py-12 text-center text-zinc-400 italic text-sm">
+                          Nenhum usuário encontrado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
+            <AlertCircle size={48} className="mb-4 opacity-20" />
+            <p className="text-lg font-medium">Funcionalidade em desenvolvimento</p>
+            <p className="text-sm">Estamos reconstruindo o sistema para você.</p>
+          </div>
+        )}
         </div>
 
         {/* Modal de Categoria */}
@@ -1976,7 +2202,7 @@ const App: React.FC = () => {
                     Cancelar
                   </button>
                   <button 
-                    onClick={() => updateTicketStatus(selectedTicket.id, 'Concluído', resolutionText)}
+                    onClick={() => updateTicketStatus(selectedTicket.id, 'Encerrado', resolutionText)}
                     disabled={!resolutionText.trim()}
                     className="flex-1 px-4 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -2002,7 +2228,7 @@ const App: React.FC = () => {
                 <div className="p-4 sm:p-6 bg-white border-b border-zinc-100">
                   <div className="flex items-center justify-between mb-4 sm:mb-6">
                     <h3 className="text-lg sm:text-2xl font-bold text-zinc-900 truncate pr-4">
-                      #{viewingTicket.id.toString().padStart(4, '0')} - {viewingTicket.title}
+                      #{viewingTicket.id} - {viewingTicket.title}
                     </h3>
                     <button onClick={() => setViewingTicket(null)} className="text-zinc-400 hover:text-zinc-900 shrink-0">
                       <X size={24} />
@@ -2012,23 +2238,22 @@ const App: React.FC = () => {
                   {/* Stepper */}
                   <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
                     {[
-                      { label: 'Aberto', color: 'bg-emerald-500' },
-                      { label: 'Em análise', color: 'bg-emerald-500' },
-                      { label: 'Pendente cliente', color: 'bg-orange-400' },
-                      { label: 'Validação cliente', color: 'bg-zinc-300' },
-                      { label: 'Encerrado', color: 'bg-zinc-300' }
+                      { label: 'Aberto', color: 'bg-orange-400' },
+                      { label: 'Em Análise', color: 'bg-blue-500' },
+                      { label: 'Validação Pendente', color: 'bg-purple-400' },
+                      { label: 'Encerrado', color: 'bg-emerald-500' }
                     ].filter((_, idx) => {
-                      if (selectedPortal !== 'Portal Lubpar') return true;
-                      const statuses = ['Aberto', 'Em análise', 'Pendente cliente', 'Validação cliente', 'Encerrado'];
+                      if (selectedPortal !== 'Colaborador') return true;
+                      const statuses = ['Aberto', 'Em Análise', 'Validação Pendente', 'Encerrado'];
                       const currentIdx = statuses.indexOf(viewingTicket.status);
                       return idx <= currentIdx;
                     }).map((step, idx, filteredArray) => {
-                      const statuses = ['Aberto', 'Em análise', 'Pendente cliente', 'Validação cliente', 'Encerrado'];
+                      const statuses = ['Aberto', 'Em Análise', 'Validação Pendente', 'Encerrado'];
                       const currentIdx = statuses.indexOf(viewingTicket.status);
                       const isPast = currentIdx >= statuses.indexOf(step.label);
                       
                       return (
-                        <div key={idx} className={`${selectedPortal === 'Portal Lubpar' ? 'flex-none w-auto pr-4' : 'flex-1 min-w-[120px]'}`}>
+                        <div key={idx} className={`${selectedPortal === 'Colaborador' ? 'flex-none w-auto pr-4' : 'flex-1 min-w-[120px]'}`}>
                           <div className="flex items-center gap-1.5 mb-2">
                             <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isPast ? 'text-emerald-500' : 'text-zinc-300'}`}>
                               <CheckCircle2 size={14} />
@@ -2042,6 +2267,67 @@ const App: React.FC = () => {
                       );
                     })}
                   </div>
+
+                  {/* Admin Actions */}
+                  {selectedPortal === 'Gestão' && viewingTicket.status !== 'Encerrado' && (
+                    <div className="mt-6 space-y-4 pt-6 border-t border-zinc-100">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-400">
+                            <User size={20} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Responsável</div>
+                            <div className="text-sm font-bold text-zinc-900">
+                              {viewingTicket.responsible_name || viewingTicket.gestao_users?.name || 'Não assumido'}
+                            </div>
+                          </div>
+                        </div>
+                        {!viewingTicket.responsible_id && (
+                          <button
+                            onClick={() => {
+                              assumeTicket(viewingTicket.id);
+                              setViewingTicket({ 
+                                ...viewingTicket, 
+                                responsible_id: user.id, 
+                                responsible_name: user.name,
+                                status: 'Em Análise'
+                              });
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                          >
+                            <UserPlus size={14} />
+                            Assumir Chamado
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest w-full mb-1">Atualizar Status:</span>
+                        {['Aberto', 'Em Análise', 'Validação Pendente', 'Encerrado'].map((status) => (
+                          <button
+                            key={status}
+                            onClick={() => {
+                              if (status === 'Encerrado') {
+                                setSelectedTicket(viewingTicket);
+                                setIsResolutionModalOpen(true);
+                              } else {
+                                updateTicketStatus(viewingTicket.id, status);
+                                setViewingTicket({ ...viewingTicket, status });
+                              }
+                            }}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                              viewingTicket.status === status
+                                ? 'bg-lubpar-blue text-white border-lubpar-blue shadow-lg shadow-lubpar-blue/20'
+                                : 'bg-white text-zinc-600 border-zinc-200 hover:border-lubpar-blue hover:text-lubpar-blue'
+                            }`}
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Chat Area */}
