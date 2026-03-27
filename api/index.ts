@@ -448,6 +448,95 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+app.post('/api/users', async (req, res) => {
+  const { name, email, password, type } = req.body;
+  try {
+    const supabase = getSupabase();
+    const table = type === 'Gestão' ? 'gestao_users' : 'portal_users';
+    
+    const { data, error } = await supabase
+      .from(table)
+      .insert([{ name, email, password }])
+      .select();
+
+    if (error) throw error;
+    res.json(data[0]);
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id', async (req, res) => {
+  const { name, email, password, type, oldType } = req.body;
+  const { id } = req.params;
+  try {
+    const supabase = getSupabase();
+    
+    // Se o tipo mudou, precisamos mover o usuário de tabela
+    if (type !== oldType) {
+      const oldTable = oldType === 'Gestão' ? 'gestao_users' : 'portal_users';
+      const newTable = type === 'Gestão' ? 'gestao_users' : 'portal_users';
+      
+      // 1. Deleta da tabela antiga
+      const { error: deleteError } = await supabase
+        .from(oldTable)
+        .delete()
+        .eq('id', id);
+      
+      if (deleteError) throw deleteError;
+      
+      // 2. Insere na nova tabela (mantendo o ID se possível, mas UUIDs gen_random_uuid() podem complicar se não passarmos)
+      // No Supabase, se passarmos o ID ele tenta usar.
+      const insertData: any = { id, name, email, password };
+      const { data: newData, error: insertError } = await supabase
+        .from(newTable)
+        .insert([insertData])
+        .select();
+        
+      if (insertError) throw insertError;
+      return res.json(newData[0]);
+    }
+
+    // Se o tipo não mudou, apenas atualiza
+    const table = type === 'Gestão' ? 'gestao_users' : 'portal_users';
+    const updateData: any = { name, email };
+    if (password) updateData.password = password;
+
+    const { data, error } = await supabase
+      .from(table)
+      .update(updateData)
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json(data[0]);
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  const { type } = req.query;
+  const { id } = req.params;
+  try {
+    const supabase = getSupabase();
+    const table = type === 'Gestão' ? 'gestao_users' : 'portal_users';
+    
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.patch('/api/profile', async (req, res) => {
   const { id, name, email, password, portalType } = req.body;
   try {

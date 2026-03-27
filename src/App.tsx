@@ -36,6 +36,7 @@ import {
   MessageSquare,
   Image as ImageIcon,
   Trash2,
+  Edit2,
   Send,
   Paperclip,
   User,
@@ -195,6 +196,16 @@ const App: React.FC = () => {
   const [ticketSearch, setTicketSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferringTicket, setTransferringTicket] = useState<any>(null);
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [userFormData, setUserFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    type: 'Cliente'
+  });
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => {
     setToast({ message, type });
@@ -219,10 +230,10 @@ const App: React.FC = () => {
   }, [isAuthenticated, user?.id, selectedPortal]);
 
   useEffect(() => {
-    if (activeTab === 'Configurações' && selectedPortal === 'Gestão') {
+    if ((activeTab === 'Configurações' || isTransferModalOpen) && selectedPortal === 'Gestão') {
       fetchUsers();
     }
-  }, [activeTab, selectedPortal]);
+  }, [activeTab, selectedPortal, isTransferModalOpen]);
 
   const openCategoryModal = (config?: any) => {
     if (config) {
@@ -421,6 +432,74 @@ const App: React.FC = () => {
     }
   };
 
+  const openUserModal = (userToEdit?: any) => {
+    if (userToEdit) {
+      setEditingUser(userToEdit);
+      setUserFormData({
+        name: userToEdit.name,
+        email: userToEdit.email,
+        password: '',
+        type: userToEdit.type
+      });
+    } else {
+      setEditingUser(null);
+      setUserFormData({
+        name: '',
+        email: '',
+        password: '',
+        type: 'Cliente'
+      });
+    }
+    setIsUserModalOpen(true);
+  };
+
+  const saveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const url = editingUser ? `/api/users/${editingUser.id}` : '/api/users';
+      const method = editingUser ? 'PATCH' : 'POST';
+      const body = { 
+        ...userFormData, 
+        oldType: editingUser?.type 
+      };
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        showToast(editingUser ? 'Usuário atualizado' : 'Usuário criado', 'success');
+        setIsUserModalOpen(false);
+        fetchUsers();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Erro ao salvar usuário');
+      }
+    } catch (error) {
+      showToast('Erro ao salvar usuário');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteUser = async (id: string, type: string) => {
+    if (!confirm('Tem certeza que deseja excluir este usuário?')) return;
+    try {
+      const res = await fetch(`/api/users/${id}?type=${type}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast('Usuário excluído', 'success');
+        fetchUsers();
+      }
+    } catch (error) {
+      showToast('Erro ao excluir usuário');
+    }
+  };
+
   const saveInventory = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -578,6 +657,29 @@ const App: React.FC = () => {
       }
     } catch (error) {
       showToast('Erro ao assumir chamado');
+    }
+  };
+
+  const transferTicket = async (ticketId: string, newResponsible: any) => {
+    if (!user || selectedPortal !== 'Gestão') return;
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          responsible_id: newResponsible.id,
+          responsible_name: newResponsible.name,
+          status: 'Em Análise'
+        })
+      });
+      if (res.ok) {
+        fetchTickets();
+        setIsTransferModalOpen(false);
+        setTransferringTicket(null);
+        showToast(`Chamado transferido para ${newResponsible.name}!`, 'success');
+      }
+    } catch (error) {
+      showToast('Erro ao transferir chamado');
     }
   };
 
@@ -1497,9 +1599,9 @@ const App: React.FC = () => {
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">ID</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Assunto</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Usuário</th>
-                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Responsável</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Prioridade</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Responsável</th>
                           <th className="px-6 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Ação</th>
                         </tr>
                       </thead>
@@ -1521,18 +1623,6 @@ const App: React.FC = () => {
                               </td>
                               <td className="px-6 py-4 text-sm text-zinc-600">
                                 {ticket.user_name || ticket.portal_users?.name || 'Usuário'}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-zinc-600">
-                                {(ticket.responsible_name || ticket.gestao_users?.name) ? (
-                                  <span className="flex items-center gap-1.5">
-                                    <div className="w-5 h-5 rounded-full bg-zinc-100 flex items-center justify-center text-[8px] font-bold">
-                                      {(ticket.responsible_name || ticket.gestao_users?.name).charAt(0)}
-                                    </div>
-                                    {ticket.responsible_name || ticket.gestao_users?.name}
-                                  </span>
-                                ) : (
-                                  <span className="text-zinc-300 italic">Não assumido</span>
-                                )}
                               </td>
                               <td className="px-6 py-4">
                                 <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
@@ -1557,6 +1647,18 @@ const App: React.FC = () => {
                                   {ticket.status}
                                 </span>
                               </td>
+                              <td className="px-6 py-4 text-sm text-zinc-600">
+                                {(ticket.responsible_name || ticket.gestao_users?.name) ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <div className="w-5 h-5 rounded-full bg-zinc-100 flex items-center justify-center text-[8px] font-bold">
+                                      {(ticket.responsible_name || ticket.gestao_users?.name).charAt(0)}
+                                    </div>
+                                    {ticket.responsible_name || ticket.gestao_users?.name}
+                                  </span>
+                                ) : (
+                                  <span className="text-zinc-300 italic">Não assumido</span>
+                                )}
+                              </td>
                               <td className="px-6 py-4 text-center">
                                 <div className="flex items-center justify-center gap-2">
                                   {!ticket.responsible_id && selectedPortal === 'Gestão' && (
@@ -1566,6 +1668,18 @@ const App: React.FC = () => {
                                       className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
                                     >
                                       <UserPlus size={18} />
+                                    </button>
+                                  )}
+                                  {selectedPortal === 'Gestão' && (
+                                    <button 
+                                      onClick={() => {
+                                        setTransferringTicket(ticket);
+                                        setIsTransferModalOpen(true);
+                                      }}
+                                      title="Transferir chamado"
+                                      className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-all"
+                                    >
+                                      <Send size={18} />
                                     </button>
                                   )}
                                   <button 
@@ -1712,6 +1826,13 @@ const App: React.FC = () => {
                 </h4>
                 <div className="flex items-center gap-4">
                   <button 
+                    onClick={() => openUserModal()}
+                    className="flex items-center gap-2 px-4 py-2 bg-lubpar-blue text-white rounded-xl hover:bg-lubpar-blue/90 transition-all font-bold text-xs shadow-sm"
+                  >
+                    <UserPlus size={16} />
+                    Novo Usuário
+                  </button>
+                  <button 
                     onClick={() => fetchUsers()}
                     disabled={isUsersLoading}
                     className="p-2 rounded-xl hover:bg-zinc-50 text-zinc-400 hover:text-lubpar-blue transition-all disabled:opacity-50"
@@ -1763,9 +1884,22 @@ const App: React.FC = () => {
                             </span>
                           </td>
                           <td className="px-8 py-4 text-center">
-                            <button className="p-2 text-zinc-300 hover:text-zinc-600 transition-colors">
-                              <MoreVertical size={18} />
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                              <button 
+                                onClick={() => openUserModal(u)}
+                                className="p-2 text-zinc-300 hover:text-lubpar-blue transition-colors"
+                                title="Editar usuário"
+                              >
+                                <Edit2 size={18} />
+                              </button>
+                              <button 
+                                onClick={() => deleteUser(u.id, u.type)}
+                                className="p-2 text-zinc-300 hover:text-red-500 transition-colors"
+                                title="Excluir usuário"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1790,7 +1924,117 @@ const App: React.FC = () => {
         )}
         </div>
 
-        {/* Modal de Categoria */}
+        {/* Modal de Usuário */}
+        <AnimatePresence>
+          {isUserModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsUserModalOpen(false)}
+                className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden m-4"
+              >
+                <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+                  <h3 className="text-xl font-bold">{editingUser ? 'Editar Usuário' : 'Novo Usuário'}</h3>
+                  <button onClick={() => setIsUserModalOpen(false)} className="text-zinc-400 hover:text-zinc-900">
+                    <X size={24} />
+                  </button>
+                </div>
+                <form onSubmit={saveUser} className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 gap-6">
+                    <div>
+                      <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Nome Completo</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={userFormData.name}
+                        onChange={(e) => setUserFormData({ ...userFormData, name: e.target.value })}
+                        placeholder="Ex: João Silva"
+                        className="w-full px-4 py-3 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">E-mail</label>
+                      <input 
+                        type="email" 
+                        required
+                        value={userFormData.email}
+                        onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
+                        placeholder="exemplo@lubpar.com"
+                        className="w-full px-4 py-3 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">
+                        Senha {editingUser && <span className="text-[10px] text-zinc-400 font-normal lowercase">(deixe em branco para manter)</span>}
+                      </label>
+                      <input 
+                        type="password" 
+                        required={!editingUser}
+                        value={userFormData.password}
+                        onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                        placeholder="••••••••"
+                        className="w-full px-4 py-3 bg-zinc-100 border-transparent focus:bg-white focus:border-zinc-300 rounded-xl outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-zinc-700 mb-2 uppercase tracking-wider">Permissão</label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setUserFormData({ ...userFormData, type: 'Cliente' })}
+                          className={`p-4 rounded-xl border-2 transition-all text-left ${
+                            userFormData.type === 'Cliente' 
+                            ? 'border-lubpar-blue bg-lubpar-blue/5' 
+                            : 'border-zinc-100 hover:border-zinc-200'
+                          }`}
+                        >
+                          <div className={`font-bold text-sm mb-1 ${userFormData.type === 'Cliente' ? 'text-lubpar-blue' : 'text-zinc-900'}`}>Cliente</div>
+                          <div className="text-[10px] text-zinc-500">Acesso ao portal de chamados e inventário pessoal.</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUserFormData({ ...userFormData, type: 'Gestão' })}
+                          className={`p-4 rounded-xl border-2 transition-all text-left ${
+                            userFormData.type === 'Gestão' 
+                            ? 'border-lubpar-blue bg-lubpar-blue/5' 
+                            : 'border-zinc-100 hover:border-zinc-200'
+                          }`}
+                        >
+                          <div className={`font-bold text-sm mb-1 ${userFormData.type === 'Gestão' ? 'text-lubpar-blue' : 'text-zinc-900'}`}>Gestão</div>
+                          <div className="text-[10px] text-zinc-500">Acesso total ao painel de controle e gerenciamento.</div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 pt-4">
+                    <button 
+                      type="button"
+                      onClick={() => setIsUserModalOpen(false)}
+                      className="flex-1 px-6 py-3 bg-zinc-100 text-zinc-600 rounded-xl hover:bg-zinc-200 transition-all font-bold"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="flex-1 px-6 py-3 bg-lubpar-blue text-white rounded-xl hover:bg-lubpar-blue/90 transition-all font-bold shadow-lg shadow-lubpar-blue/20 disabled:opacity-50"
+                    >
+                      {isLoading ? 'Salvando...' : 'Salvar Usuário'}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {isCategoryModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2516,6 +2760,68 @@ const App: React.FC = () => {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Transfer Ticket Modal */}
+        <AnimatePresence>
+          {isTransferModalOpen && transferringTicket && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-zinc-100"
+              >
+                <div className="p-8 pb-0 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-zinc-900">Transferir Chamado</h3>
+                  <button onClick={() => setIsTransferModalOpen(false)} className="text-zinc-400 hover:text-zinc-900">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="p-8 space-y-6">
+                  <div>
+                    <p className="text-sm text-zinc-500 mb-4">
+                      Selecione o técnico para quem deseja transferir o chamado <strong>#{transferringTicket.id}</strong>:
+                    </p>
+                    
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                      {users.filter(u => u.type === 'Gestão').map((u) => (
+                        <button
+                          key={u.id}
+                          onClick={() => transferTicket(transferringTicket.id, u)}
+                          className="w-full flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-lubpar-blue hover:bg-zinc-50 transition-all group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center text-xs font-bold text-zinc-600 group-hover:bg-lubpar-blue/10 group-hover:text-lubpar-blue transition-colors">
+                              {u.name?.charAt(0) || '?'}
+                            </div>
+                            <div className="text-left">
+                              <div className="font-bold text-sm text-zinc-900">{u.name}</div>
+                              <div className="text-[10px] text-zinc-400">{u.email}</div>
+                            </div>
+                          </div>
+                          <ChevronRight size={16} className="text-zinc-300 group-hover:text-lubpar-blue transition-colors" />
+                        </button>
+                      ))}
+                      {users.filter(u => u.type === 'Gestão').length === 0 && (
+                        <div className="text-center py-8 text-zinc-400 italic text-sm">
+                          Nenhum técnico disponível encontrado.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => setIsTransferModalOpen(false)}
+                    className="w-full py-4 bg-zinc-100 text-zinc-600 rounded-2xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </motion.div>
             </div>
           )}
