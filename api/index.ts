@@ -122,14 +122,24 @@ async function initializeDatabase(pool: pg.Pool) {
       );
     `);
 
-    const { rows } = await pool.query('SELECT count(*) as count FROM gestao_users');
-    if (parseInt(rows[0].count, 10) === 0) {
-      await pool.query(`
-        INSERT INTO gestao_users (name, email, password) 
-        VALUES ('Admin', 'gestaoti.lubpar@gmail.com', 'admin123')
-      `);
-      console.log('Default Gestão user registered successfully!');
-    }
+    // Cadastro de usuários de teste padrão usando ON CONFLICT
+    await pool.query(`
+      INSERT INTO gestao_users (name, email, password) 
+      VALUES ('Gestão de Teste', 'gestao@lubpar.com', 'teste123')
+      ON CONFLICT (email) DO NOTHING;
+    `);
+
+    await pool.query(`
+      INSERT INTO gestao_users (name, email, password) 
+      VALUES ('Admin TI', 'gestaoti.lubpar@gmail.com', 'admin123')
+      ON CONFLICT (email) DO NOTHING;
+    `);
+
+    await pool.query(`
+      INSERT INTO portal_users (name, email, password) 
+      VALUES ('Colaborador de Teste', 'colaborador@lubpar.com', 'teste123')
+      ON CONFLICT (email) DO NOTHING;
+    `);
 
     console.log('Database Neon inicializado perfeitamente.');
   } catch (error) {
