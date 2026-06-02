@@ -32,6 +32,7 @@ import {
   FileText,
   ClipboardCheck,
   CreditCard,
+  Download,
   Car,
   MessageSquare,
   Image as ImageIcon,
@@ -206,6 +207,15 @@ const App: React.FC = () => {
     password: '',
     type: 'Cliente'
   });
+
+  // 2ª via de boleto state
+  const [boletoSearchBy, setBoletoSearchBy] = useState('CNPJ');
+  const [boletoSearchData, setBoletoSearchData] = useState('');
+  const [boletoFilial, setBoletoFilial] = useState('01');
+  const [boletoPedido, setBoletoPedido] = useState('');
+  const [boletoBranch, setBoletoBranch] = useState('SÃO PAULO');
+  const [boletosResults, setBoletosResults] = useState<any[]>([]);
+  const [isSearchingBoletos, setIsSearchingBoletos] = useState(false);
 
   const showToast = (message: string, type: 'error' | 'success' = 'error') => {
     setToast({ message, type });
@@ -497,6 +507,74 @@ const App: React.FC = () => {
       }
     } catch (error) {
       showToast('Erro ao excluir usuário');
+    }
+  };
+
+  const searchBoletos = async () => {
+    if (!boletoFilial || !boletoPedido) {
+      showToast('Por favor, insira a Filial e o Pedido.');
+      return;
+    }
+    setIsSearchingBoletos(true);
+    try {
+      const response = await fetch('/api/boletos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          searchBy: 'PEDIDO',
+          searchData: boletoPedido,
+          branch: boletoFilial,
+          filial: boletoFilial,
+          pedido: boletoPedido
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao buscar boletos.');
+      }
+
+      const data = await response.json();
+      
+      // Map the API data to our table structure
+      // Handle different possible structures (direct array, or object with array)
+      let boletosArray = [];
+      if (Array.isArray(data)) {
+        boletosArray = data;
+      } else if (data && typeof data === 'object') {
+        // Look for common array properties in Protheus responses
+        const possibleArray = data.items || data.boletos || data.data || data.objects;
+        if (Array.isArray(possibleArray)) {
+          boletosArray = possibleArray;
+        } else if (data.cliente || data.CLIENTE) {
+          // If the object itself is a single boleto
+          boletosArray = [data];
+        }
+      }
+
+      const formattedBoletos = boletosArray.map((b: any, index: number) => ({
+        id: b.id || b.ID || String(index),
+        cliente: b.cliente || b.CLIENTE || 'N/A',
+        vendedor: b.vendedor || b.VENDEDOR || b.VENDEDOR1 || b.VENDEDOR_1 || b.vendedor1 || 'N/A',
+        vencimento: b.vencimento || b.VENCIMENTO || 'N/A',
+        pagamento: b.pagamento || b.PAGAMENTO || '',
+        valor: b.valor || b.VALOR || 'R$ 0,00',
+        status: b.status || b.STATUS || 'Pendente',
+        downloadUrl: b.downloadUrl || b.URL || '#'
+      }));
+
+      setBoletosResults(formattedBoletos);
+      if (formattedBoletos.length === 0) {
+        showToast('Nenhum boleto encontrado.', 'success');
+      }
+    } catch (error: any) {
+      console.error('Search boletos error:', error);
+      showToast(error.message || 'Erro ao buscar boletos.');
+      setBoletosResults([]);
+    } finally {
+      setIsSearchingBoletos(false);
     }
   };
 
@@ -1040,7 +1118,7 @@ const App: React.FC = () => {
               { name: 'Início', icon: LayoutDashboard },
               { name: 'Chamados', icon: Ticket },
               { name: 'Meus Pedidos', icon: Truck },
-              { name: 'Financeiro', icon: CreditCard },
+              { name: '2ª via de boleto', icon: CreditCard },
               { name: 'Frota', icon: Car },
             ].map((item) => (
               <button
@@ -1158,7 +1236,7 @@ const App: React.FC = () => {
                 {[
                   { title: 'Chamados', desc: 'Gerencie e solicite suporte técnico ou manutenção.', icon: Ticket, color: 'bg-zinc-900', action: () => setActiveTab('Chamados') },
                   { title: 'Tracking de pedidos', desc: 'Acompanhe o status de suas entregas.', icon: Truck, color: 'bg-blue-600', action: () => setActiveTab('Meus Pedidos') },
-                  { title: '2ª de boleto', desc: 'Emita a segunda via de seus boletos.', icon: FileText, color: 'bg-emerald-600', action: () => setActiveTab('Financeiro') },
+                  { title: '2ª via de boleto', desc: 'Emita a segunda via de seus boletos.', icon: FileText, color: 'bg-emerald-600', action: () => setActiveTab('2ª via de boleto') },
                   { title: 'Checklist de Frota', desc: 'Realize a conferência de veículos.', icon: ClipboardCheck, color: 'bg-orange-600', action: () => setActiveTab('Frota') },
                 ].map((item, i) => (
                   <motion.button
@@ -1808,6 +1886,118 @@ const App: React.FC = () => {
                     ))}
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        ) : activeTab === '2ª via de boleto' ? (
+          <div className="space-y-8">
+            <header className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Globe size={32} className="text-[#004777]" />
+                  <span className="text-2xl font-black text-[#004777] italic tracking-tighter">LUBPAR</span>
+                </div>
+                <h3 className="text-3xl font-bold text-[#004777] uppercase tracking-tighter ml-8">2ª VIA DE BOLETO</h3>
+              </div>
+            </header>
+
+            <div className="bg-zinc-100/50 p-12 rounded-[40px] border border-zinc-200 shadow-sm">
+              <div className="flex flex-col md:flex-row items-center justify-center gap-8">
+                <div className="w-full md:w-64">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">FILIAL:</span>
+                    <input 
+                      type="text" 
+                      value={boletoFilial}
+                      onChange={(e) => setBoletoFilial(e.target.value)}
+                      placeholder="01"
+                      className="w-full px-6 py-4 bg-zinc-100 border-2 border-zinc-200 text-zinc-600 font-bold uppercase tracking-widest rounded-xl outline-none focus:border-[#004777] transition-all text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="w-full md:w-96">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">PEDIDO:</span>
+                    <input 
+                      type="text" 
+                      value={boletoPedido}
+                      onChange={(e) => setBoletoPedido(e.target.value)}
+                      placeholder="INSIRA O NÚMERO DO PEDIDO"
+                      className="w-full px-8 py-4 bg-zinc-100 border-2 border-zinc-200 text-zinc-600 font-bold uppercase tracking-widest rounded-full outline-none focus:border-[#004777] transition-all text-center"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center mt-12">
+                <button 
+                  onClick={searchBoletos}
+                  disabled={isSearchingBoletos}
+                  className="px-16 py-4 bg-[#1a4b7c] text-white font-bold uppercase tracking-widest rounded-full hover:bg-[#153a61] transition-all shadow-lg shadow-blue-900/20 disabled:opacity-50"
+                >
+                  {isSearchingBoletos ? 'PESQUISANDO...' : 'PESQUISAR'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-zinc-100/50 p-12 rounded-[40px] border border-zinc-200 shadow-sm">
+              <h4 className="text-3xl font-bold text-zinc-600 mb-12">Boletos</h4>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-transparent">
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Cliente</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Vendedor 1</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Vencimento</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Pagamento</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Valor</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Status</th>
+                      <th className="px-4 py-6 text-sm font-bold text-zinc-600 text-center">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-transparent">
+                    {boletosResults.length > 0 ? (
+                      boletosResults.map((boleto) => (
+                        <tr key={boleto.id} className="text-zinc-400 text-sm font-medium">
+                          <td className="px-4 py-6 text-center">{boleto.cliente}</td>
+                          <td className="px-4 py-6 text-center">{boleto.vendedor}</td>
+                          <td className="px-4 py-6 text-center">{boleto.vencimento}</td>
+                          <td className="px-4 py-6 text-center">{boleto.pagamento || '-'}</td>
+                          <td className="px-4 py-6 text-center">{boleto.valor}</td>
+                          <td className="px-4 py-6 text-center">
+                            <span className={`px-4 py-1.5 rounded-full text-xs font-bold text-white ${
+                              boleto.status === 'Pendente' ? 'bg-[#d63d4a]' : 'bg-emerald-500'
+                            }`}>
+                              {boleto.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-6 text-center">
+                            <button 
+                              onClick={() => {
+                                if (boleto.downloadUrl && boleto.downloadUrl !== '#') {
+                                  window.open(boleto.downloadUrl, '_blank');
+                                } else {
+                                  showToast('Link de download não disponível.');
+                                }
+                              }}
+                              className="text-[#2d29ff] hover:scale-110 transition-transform"
+                            >
+                              <Download size={24} strokeWidth={3} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-12 text-center text-zinc-400 italic">
+                          {isSearchingBoletos ? 'Buscando boletos...' : 'Nenhum boleto encontrado.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
