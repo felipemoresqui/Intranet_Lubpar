@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import pg from 'pg';
 import path from 'path';
@@ -190,9 +191,11 @@ app.post('/api/login', async (req, res) => {
       success: true, 
       user: { id: data.id, name: data.name, email: data.email, portalType } 
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Erro interno no servidor.' });
+    res.status(500).json({ 
+      error: 'Erro interno no servidor: ' + (error.message || String(error)) 
+    });
   }
 });
 
